@@ -1,0 +1,82 @@
+{
+  "collected_at_utc": "2026-03-31T08:07:29.956995Z",
+  "digitisation": {
+    "_comment": "Admin-only settings. Change these only if you know what you are doing.",
+    "capture_interval_ms": 100,
+    "output_dir": "output",
+    "category_colors": {
+      "OPM": "royalblue",
+      "head": "lightgray",
+      "fiducials": "seagreen",
+      "EEG": "orchid",
+      "HPI_coils": "darkorange"
+    },
+    "default_schema_preset": "standard",
+    "schema_presets": {
+      "standard": [
+        {"category": "fiducials", "labels": ["lpa", "nasion", "rpa"], "dig_type": "single"},
+        {"category": "HPI_coils", "labels": ["hpi1", "hpi2", "hpi3", "hpi4"], "dig_type": "single"},
+        {"category": "head", "dig_type": "continuous"}
+      ],
+      "fiducials_only": [
+        {"category": "fiducials", "labels": ["lpa", "nasion", "rpa"], "dig_type": "single"}
+      ],
+      "fiducials_and_HPI": [
+        {"category": "fiducials", "labels": ["lpa", "nasion", "rpa"], "dig_type": "single"},
+        {"category": "HPI_coils", "labels": ["hpi1", "hpi2", "hpi3", "hpi4"], "dig_type": "single"}
+      ]
+    }
+  },
+  "serial_port": "COM1",
+  "serial_baud": 9600,
+  "system": {
+    "status": {
+      "raw": "21S3F0    F33  1.1.7 xS\u007f\u007f\u007f\u007f\u007f\u007f\u007fS\u007f\u007f\u007f\u007fS\u0013"
+    },
+    "config_string_raw": "2 XxS\u007f\u007f\u007f\u007f\u007f\u007f\u007fS\u007f\u007f\u007f\u007fS\u0013",
+    "config_string": "xS\u007f\u007f\u007f\u007f\u007f\u007f\u007fS\u007f\u007f\u007f\u007fS\u0013",
+    "sync_mode": null,
+    "sync_mode_raw": "2 y0",
+    "filters": {
+      "attitude": {
+        "F": 2.0,
+        "FLOW": 0.2,
+        "FHIGH": 0.2,
+        "FACTOR": 0.8
+      },
+      "attitude_raw": "2 v  0.200  0.200  0.800  0.950",
+      "position": {
+        "F": 2.0,
+        "FLOW": 0.2,
+        "FHIGH": 0.2,
+        "FACTOR": 0.8
+      },
+      "position_raw": "2 x  0.200  0.200  0.800  0.950"
+    }
+  },
+  "stations_active_raw": "21l1100",
+  "stations_active": [
+    false,
+    false,
+    false,
+    false
+  ],
+  "stations": {
+    "1": {
+      "station": 1,
+      "active": false
+    },
+    "2": {
+      "station": 2,
+      "active": false
+    },
+    "3": {
+      "station": 3,
+      "active": false
+    },
+    "4": {
+      "station": 4,
+      "active": false
+    }
+  }
+}

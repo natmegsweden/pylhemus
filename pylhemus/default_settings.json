@@ -1,0 +1,32 @@
+{
+  "collected_at_utc": "2026-03-31T08:07:29.956995Z",
+  "digitisation": {
+    "_comment": "Admin-only settings. Change these only if you know what you are doing.",
+    "capture_interval_ms": 100,
+    "output_dir": "output",
+    "category_colors": {
+      "OPM": "royalblue",
+      "head": "lightgray",
+      "fiducials": "seagreen",
+      "EEG": "orchid",
+      "HPI_coils": "darkorange"
+    },
+    "default_schema_preset": "standard",
+    "schema_presets": {
+      "standard": [
+        {"category": "fiducials", "labels": ["lpa", "nasion", "rpa"], "dig_type": "single"},
+        {"category": "HPI_coils", "labels": ["hpi1", "hpi2", "hpi3", "hpi4"], "dig_type": "single"},
+        {"category": "head", "dig_type": "continuous"}
+      ],
+      "fiducials_only": [
+        {"category": "fiducials", "labels": ["lpa", "nasion", "rpa"], "dig_type": "single"}
+      ],
+      "fiducials_and_HPI": [
+        {"category": "fiducials", "labels": ["lpa", "nasion", "rpa"], "dig_type": "single"},
+        {"category": "HPI_coils", "labels": ["hpi1", "hpi2", "hpi3", "hpi4"], "dig_type": "single"}
+      ]
+    }
+  },
+  "serial_port": "COM1",
+  "serial_baud": 9600
+}

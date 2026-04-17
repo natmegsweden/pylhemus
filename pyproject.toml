@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pylhemus"
+version = "0.1.0"
+description = "GUI workflow for Polhemus FASTRAK digitisation"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "lazy-loader",
+    "numpy",
+    "pandas",
+    "PyQt5",
+    "pyserial",
+    "pyvistaqt",
+]
+
+[project.scripts]
+pylhemus = "pylhemus.cli:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pylhemus*"]
+
+[tool.setuptools.package-data]
+pylhemus = ["default_settings.json"]
