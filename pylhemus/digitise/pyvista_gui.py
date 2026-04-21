@@ -114,24 +114,31 @@ class ParticipantDialog(QDialog):
 # ---------------------------------------------------------------------------
 
 class _AddSchemaItemDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, existing_item=None):
         super().__init__(parent)
-        self.setWindowTitle("Add Schema Item")
-        self.setFixedSize(400, 180)
-        self.item_data: dict = {}
+        self.setWindowTitle("Add/Edit Schema Item")
+        self.setFixedSize(400, 220)
+        self.item_data: dict = existing_item or {}
 
         form = QFormLayout(self)
-        self.category_edit = QLineEdit()
+        self.category_edit = QLineEdit(self.item_data.get("category", ""))
         self.category_edit.setPlaceholderText("e.g. fiducials")
         form.addRow("Category:", self.category_edit)
 
         self.type_combo = QComboBox()
         self.type_combo.addItems(["single", "continuous"])
+        self.type_combo.setCurrentText(self.item_data.get("dig_type", "single"))
         form.addRow("Type:", self.type_combo)
 
-        self.labels_edit = QLineEdit()
+        self.labels_edit = QLineEdit(", ".join(self.item_data.get("labels", [])) if self.item_data.get("dig_type") == "single" else str(self.item_data.get("n_points", "")))
         self.labels_edit.setPlaceholderText("label1, label2  —or—  number of points (continuous)")
         form.addRow("Labels / n_points:", self.labels_edit)
+
+        self.template_combo = QComboBox()
+        self.template_combo.addItem("None")
+        self.template_combo.addItems(["EEG_layout", "template_base"])
+        self.template_combo.setCurrentText(self.item_data.get("template", "None"))
+        form.addRow("Template:", self.template_combo)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._on_accept)
@@ -145,6 +152,7 @@ class _AddSchemaItemDialog(QDialog):
             return
         dig_type = self.type_combo.currentText()
         raw = self.labels_edit.text().strip()
+        template = self.template_combo.currentText()
         if dig_type == "continuous":
             try:
                 n = int(raw)
@@ -154,6 +162,8 @@ class _AddSchemaItemDialog(QDialog):
         else:
             labels = [lbl.strip() for lbl in raw.split(",") if lbl.strip()]
             self.item_data = {"category": category, "dig_type": "single", "labels": labels}
+        if template != "None":
+            self.item_data["template"] = template
         self.accept()
 
 
@@ -200,8 +210,10 @@ class SchemaEditorDialog(QDialog):
 
         item_btns = QHBoxLayout()
         self.add_item_btn = QPushButton("＋ Add Item")
+        self.edit_item_btn = QPushButton("✎ Edit Item")
         self.remove_item_btn = QPushButton("－ Remove Selected")
         item_btns.addWidget(self.add_item_btn)
+        item_btns.addWidget(self.edit_item_btn)
         item_btns.addWidget(self.remove_item_btn)
         item_btns.addStretch(1)
         layout.addLayout(item_btns)
@@ -222,6 +234,7 @@ class SchemaEditorDialog(QDialog):
 
         self.preset_combo.currentTextChanged.connect(self._load_preset_into_list)
         self.add_item_btn.clicked.connect(self._add_item)
+        self.edit_item_btn.clicked.connect(self._edit_item)
         self.remove_item_btn.clicked.connect(self._remove_selected)
         self.save_preset_btn.clicked.connect(self._save_preset)
         self.del_preset_btn.clicked.connect(self._delete_preset)
@@ -265,6 +278,20 @@ class SchemaEditorDialog(QDialog):
             list_item = QListWidgetItem(self._item_text(dlg.item_data))
             list_item.setData(Qt.UserRole, dlg.item_data)
             self.item_list.addItem(list_item)
+
+    def _edit_item(self):
+        current_row = self.item_list.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "Select Item", "Please select an item to edit.")
+            return
+
+        list_item = self.item_list.currentItem()
+        existing_data = list_item.data(Qt.UserRole)
+        dlg = _AddSchemaItemDialog(self, existing_item=existing_data)
+        if dlg.exec_() == QDialog.Accepted:
+            updated_item = dlg.item_data
+            list_item.setText(self._item_text(updated_item))
+            list_item.setData(Qt.UserRole, updated_item)
 
     def _remove_selected(self):
         row = self.item_list.currentRow()
