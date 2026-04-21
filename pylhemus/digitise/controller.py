@@ -47,12 +47,6 @@ class DigitisationController:
         if dig_type not in {"single", "continuous"}:
             raise ValueError("dig_type must be either 'single' or 'continuous'.")
 
-        if dig_type == "continuous" and n_points is None:
-            n_points = 60  # Default value for n_points
-
-        if dig_type == "single" and n_points is not None:
-            raise ValueError("n_points is only allowed for continuous schemas, not single-point schemas.")
-
         labels = labels or []
         unbounded = dig_type == "continuous"
 
@@ -133,13 +127,8 @@ class DigitisationController:
             return None
 
         if item.dig_type == "single":
-            stylus_point = tuple(float(sensor_data[axis, 0]) for axis in range(3))
-            head_point = tuple(float(sensor_data[axis, 1]) for axis in range(3))
-
-            # Validate tuple sizes explicitly
-            if len(stylus_point) != 3 or len(head_point) != 3:
-                raise ValueError("Both stylus_point and head_point must have exactly 3 elements.")
-
+            stylus_point = tuple(float(sensor_data[axis, 0]) for axis in range(1, 4))
+            head_point = tuple(float(sensor_data[axis, 1]) for axis in range(1, 4))
             distance = self.calculate_distance(stylus_point, head_point)
             next_idx, accepted = self.idx_of_next_point(distance, self.current_label_idx)
 
