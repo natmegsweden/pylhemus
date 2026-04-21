@@ -34,6 +34,7 @@ from pyvistaqt import QtInteractor
 
 from .controller import DigitisationController
 from ..settings import resolve_settings_path
+from ..template import __all__ as available_templates
 
 _DEFAULT_SETTINGS_PATH = resolve_settings_path()
 
@@ -84,7 +85,7 @@ class ParticipantDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("New Digitisation Session")
-        self.setFixedSize(340, 120)
+        self.setFixedSize(340, 160)
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Participant ID:"))
@@ -103,10 +104,6 @@ class ParticipantDialog(QDialog):
             QMessageBox.warning(self, "Required", "Participant ID cannot be empty.")
             return
         self.accept()
-
-    @property
-    def participant_id(self) -> str:
-        return self.id_edit.text().strip()
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +133,7 @@ class _AddSchemaItemDialog(QDialog):
 
         self.template_combo = QComboBox()
         self.template_combo.addItem("None")
-        self.template_combo.addItems(["EEG_layout", "template_base"])
+        self.template_combo.addItems(available_templates)  # Dynamically populate from __init__.pyi
         self.template_combo.setCurrentText(self.item_data.get("template", "None"))
         form.addRow("Template:", self.template_combo)
 
@@ -369,6 +366,7 @@ class LaunchDialog(QDialog):
         if idx >= 0:
             self.schema_combo.setCurrentIndex(idx)
         schema_row.addWidget(self.schema_combo, stretch=1)
+
         manage_btn = QToolButton()
         manage_btn.setText("⚙")
         manage_btn.setToolTip("Manage schema presets")
@@ -384,20 +382,6 @@ class LaunchDialog(QDialog):
         layout.addWidget(buttons)
         self.id_edit.returnPressed.connect(self._on_accept)
 
-    def _open_schema_editor(self):
-        dlg = SchemaEditorDialog(settings_path=self.settings_path, parent=self)
-        dlg.exec_()
-        # Refresh combo after potential preset changes
-        current = self.schema_combo.currentText()
-        dig = _load_dig_settings(self.settings_path)
-        self._presets = dig.get("schema_presets", {})
-        self.schema_combo.clear()
-        for name in self._presets:
-            self.schema_combo.addItem(name)
-        idx = self.schema_combo.findText(current)
-        if idx >= 0:
-            self.schema_combo.setCurrentIndex(idx)
-
     def _on_accept(self):
         if not self.id_edit.text().strip():
             QMessageBox.warning(self, "Required", "Participant ID cannot be empty.")
@@ -410,7 +394,25 @@ class LaunchDialog(QDialog):
 
     def selected_schema(self) -> list[dict]:
         name = self.schema_combo.currentText()
-        return list(self._presets.get(name, []))
+        schema = list(self._presets.get(name, []))
+        if not self._validate_schema(schema):
+            return []
+        return schema
+
+    def _validate_schema(self, schema: list[dict]) -> bool:
+        """Ensure all single-point schemas have labels or templates populated."""
+        for item in schema:
+            if item["dig_type"] == "single":
+                labels = item.get("labels", [])
+                template = item.get("template", None)
+                if not labels and not template:
+                    QMessageBox.warning(self, "Validation Error", f"Category '{item['category']}' requires labels or a template.")
+                    return False
+        return True
+
+    def _open_schema_editor(self):
+        dlg = SchemaEditorDialog(settings_path=self.settings_path, parent=self)
+        dlg.exec_()
 
 
 # ---------------------------------------------------------------------------
@@ -461,17 +463,6 @@ class DigitisationMainWindow(QMainWindow):
 
         side_panel = QVBoxLayout()
         top_row.addLayout(side_panel, stretch=1)
-
-        # Cog button row
-        cog_row = QHBoxLayout()
-        cog_btn = QToolButton()
-        cog_btn.setText("⚙")
-        cog_btn.setToolTip("Manage schema presets")
-        cog_btn.setFont(QFont("", 14))
-        cog_btn.clicked.connect(self._open_settings)
-        cog_row.addStretch(1)
-        cog_row.addWidget(cog_btn)
-        side_panel.addLayout(cog_row)
 
         self.category_label = QLabel("Category: -")
         self.target_label = QLabel("Target: -")
@@ -551,28 +542,36 @@ class DigitisationMainWindow(QMainWindow):
                     self.plotter.add_points(points, color=color, point_size=10, render_points_as_spheres=True)
 
         item = self.controller.current_item
-        if item is not None and item.template is not None:
-            template_points = np.asarray(item.template.get_chs_pos())
-            if template_points.size > 0:
-                scene_points.append(template_points)
-                self.plotter.add_points(
-                    template_points,
-                    color="gray",
-                    point_size=6,
-                    opacity=0.35,
-                    render_points_as_spheres=True,
-                )
+        if item is not None:
+            if isinstance(item.template, str):
+                try:
+                    item.template = globals()[item.template]()
+                except KeyError:
+                    QMessageBox.critical(self, "Template Error", f"Template '{item.template}' not found.")
+                    return
 
-            if self.controller.current_label is not None:
-                focus = item.template.get_chs_pos([self.controller.current_label])
-                if len(focus) > 0:
-                    scene_points.append(np.asarray(focus))
+            if item.template is not None:
+                template_points = np.asarray(item.template.get_chs_pos())
+                if template_points.size > 0:
+                    scene_points.append(template_points)
                     self.plotter.add_points(
-                        np.asarray(focus),
-                        color="red",
-                        point_size=20,
+                        template_points,
+                        color="gray",
+                        point_size=6,
+                        opacity=0.35,
                         render_points_as_spheres=True,
                     )
+
+                if self.controller.current_label is not None:
+                    focus = item.template.get_chs_pos([self.controller.current_label])
+                    if len(focus) > 0:
+                        scene_points.append(np.asarray(focus))
+                        self.plotter.add_points(
+                            np.asarray(focus),
+                            color="red",
+                            point_size=20,
+                            render_points_as_spheres=True,
+                        )
 
         self.plotter.show_axes()
         self._fit_camera(scene_points)

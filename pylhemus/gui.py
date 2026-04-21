@@ -52,6 +52,8 @@ def launch_gui(
     controller = DigitisationController(connector=connector)
     controller.participant_id = participant_id
     for item in schema_items:
+        if item.get("dig_type") == "continuous" and "n_points" not in item:
+            item["n_points"] = 60  # Provide a default value for n_points
         controller.add(**item)
 
     window = DigitisationMainWindow(controller=controller, settings_path=resolved_settings_path)

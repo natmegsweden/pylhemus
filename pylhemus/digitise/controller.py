@@ -8,6 +8,7 @@ import os
 from typing import Any
 
 import pandas as pd
+from ..template.EEG_layout import EEGcapTemplate
 
 
 @dataclass
@@ -17,7 +18,7 @@ class SchemeItem:
     dig_type: str
     n_points: int
     unbounded: bool = False
-    template: Any = None
+    template: EEGcapTemplate | None = None  # Allow EEGcapTemplate objects
 
 
 class DigitisationController:
@@ -41,31 +42,36 @@ class DigitisationController:
         labels: list[str] | None = None,
         dig_type: str = "single",
         n_points: int | None = None,
-        template: Any = None,
+        template: str | None = None,  # Expecting a montage name as string
     ):
         if dig_type not in {"single", "continuous"}:
             raise ValueError("dig_type must be either 'single' or 'continuous'.")
 
+        if dig_type == "continuous" and n_points is None:
+            n_points = 60  # Default value for n_points
+
+        if dig_type == "single" and n_points is not None:
+            raise ValueError("n_points is only allowed for continuous schemas, not single-point schemas.")
+
         labels = labels or []
         unbounded = dig_type == "continuous"
 
-        if n_points is None:
-            n_points = len(labels)
-
-        if dig_type == "continuous" and n_points <= 0:
-            n_points = max(1, len(labels))
-
-        if not labels:
-            labels = [category] * n_points
+        # Convert template string to EEGcapTemplate object
+        template_obj = None
+        if template:
+            try:
+                template_obj = EEGcapTemplate(template)
+            except ValueError as e:
+                raise ValueError(f"Invalid template: {e}")
 
         self.scheme.append(
             SchemeItem(
                 category=category,
                 labels=list(labels),
                 dig_type=dig_type,
-                n_points=n_points,
+                n_points=n_points or 0,
                 unbounded=unbounded,
-                template=template,
+                template=template_obj,
             )
         )
 
@@ -127,8 +133,13 @@ class DigitisationController:
             return None
 
         if item.dig_type == "single":
-            stylus_point = tuple(float(sensor_data[axis, 0]) for axis in range(1, 4))
-            head_point = tuple(float(sensor_data[axis, 1]) for axis in range(1, 4))
+            stylus_point = tuple(float(sensor_data[axis, 0]) for axis in range(3))
+            head_point = tuple(float(sensor_data[axis, 1]) for axis in range(3))
+
+            # Validate tuple sizes explicitly
+            if len(stylus_point) != 3 or len(head_point) != 3:
+                raise ValueError("Both stylus_point and head_point must have exactly 3 elements.")
+
             distance = self.calculate_distance(stylus_point, head_point)
             next_idx, accepted = self.idx_of_next_point(distance, self.current_label_idx)
 
@@ -183,14 +194,13 @@ class DigitisationController:
         self.current_label_idx += 1
         self._advance_if_needed()
 
-    @staticmethod
-    def calculate_distance(point1: tuple[float, float, float], point2: tuple[float, float, float]) -> float:
-        x1, y1, z1 = point1
-        x2, y2, z2 = point2
-        return math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2)
+    def calculate_distance(self, point1: tuple[float, float, float], point2: tuple[float, float, float]) -> float:
+        """Calculate the Euclidean distance between two points."""
+        if len(point1) != 3 or len(point2) != 3:
+            raise ValueError("Both points must be 3D coordinates.")
+        return math.sqrt(sum((p1 - p2) ** 2 for p1, p2 in zip(point1, point2)))
 
-    @staticmethod
-    def idx_of_next_point(distance: float, idx: int, limit: float = 30.0) -> tuple[int, bool]:
+    def idx_of_next_point(self, distance: float, idx: int, limit: float = 30.0) -> tuple[int, bool]:
         if distance > limit:
             if idx <= 0:
                 return 0, False
@@ -215,7 +225,7 @@ class DigitisationController:
 
         if self.current_scheme_idx > 0:
             self.current_scheme_idx -= 1
-            self.current_label_idx = max(0, self.current_item.n_points - 1)
+            self.current_label_idx = max(0, self.current_item.n_points - 1) if self.current_item else 0
 
     def update_point(self, index: int, category: str, label: str, x: float, y: float, z: float):
         if index < 0 or index >= len(self.digitised_points):
@@ -286,11 +296,21 @@ class DigitisationController:
         else:
             self.digitised_points = df[["category", "label", "x", "y", "z"]].copy()
 
+    def validate_schema(self) -> bool:
+        """Ensure all single-point schemas have labels or templates populated."""
+        for item in self.scheme:
+            if item.dig_type == "single" and not item.labels and not item.template:
+                raise ValueError(f"Category '{item.category}' requires labels or a template.")
+        return True
+
     def status_text(self) -> tuple[str, str, str]:
         if self.is_finished:
             return "Done", "No active target", "Finished all scheme items"
 
         item = self.current_item
+        if item is None:
+            return "No category", "No target", "No progress"
+
         current_target = self.current_label or "(none)"
         if item.dig_type == "continuous" and item.unbounded:
             progress = f"{self.current_label_idx} points"
@@ -306,7 +326,10 @@ class DigitisationController:
         if item.dig_type == "continuous" and item.unbounded:
             return
 
-        if self.current_label_idx < item.n_points:
+        if item.dig_type == "single" and self.current_label_idx < len(item.labels):
+            return
+
+        if item.dig_type == "continuous" and self.current_label_idx < item.n_points:
             return
 
         self.current_scheme_idx += 1

@@ -1,21 +1,16 @@
 import mne
 import numpy as np
 from .template_base import TemplateBase
+from mne.channels import get_builtin_montages, make_standard_montage
 
 class EEGcapTemplate(TemplateBase):
-    def __init__(self, montage:str):
-        self.montage = montage
-        chan_pos, self.label, self.unit = self.get_montage_information()
-        super().__init__(self.label, self.unit, chan_pos)
-    
+    def __init__(self, montage_name: str):
+        if montage_name not in get_builtin_montages():
+            raise ValueError(f"Montage '{montage_name}' is not a standard montage.")
+        self.montage = make_standard_montage(montage_name)
+
     def get_montage_information(self):
 
-        mne_montage = mne.channels.make_standard_montage(self.montage)
+        positions = self.montage.get_positions()['ch_pos']
 
-        positions = []
-
-        for digpoint in mne_montage.dig:
-            if digpoint["kind"]==3: # if it is EEG 
-                positions.append(digpoint["r"])        
-
-        return np.array(positions), mne_montage.ch_names, "mm"
+        return positions, self.montage.ch_names, "mm"
