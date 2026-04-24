@@ -15,6 +15,7 @@ dependencies = [
     "PyQt5",
     "pyserial",
     "pyvistaqt",
+    "mne"
 ]
 
 [project.scripts]

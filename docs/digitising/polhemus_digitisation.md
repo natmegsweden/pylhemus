@@ -28,7 +28,7 @@ The GUI then:
 - connects to the FASTRAK on the configured serial port
 - prepares the device for digitisation
 - loads the selected schema into the session controller
-- writes the captured points to `output/<participant_id>_digitisation.csv` when the window closes
+- writes the captured points to `output/digitisation_sub-<participant_id>.csv` when the window closes
 
 The default serial port is also configured in `default_settings.json`:
 
