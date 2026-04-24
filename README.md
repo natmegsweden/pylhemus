@@ -4,7 +4,7 @@ FASTRAK digitisation GUI for OPM/MEG head tracking. Records 3D coordinates of fi
 
 Original code by [Laura B Paulsen](https://github.com/laurabpaulsen/OPM_lab).
 
-![Head example](docs/screenshot_windows.png)
+![Head example](docs/pylhemus_example.png)
 
 
 ## Installation
