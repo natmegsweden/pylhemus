@@ -80,6 +80,7 @@ class DigitisationController:
         self._neuromag_transform: np.ndarray | None = None
         self._transform_valid: bool = False
         self._auto_switched_to_transformed: bool = False
+        self._last_capture_rejected: bool = False
 
         for item in digitisation_scheme or []:
             self.add(**item)
@@ -187,7 +188,10 @@ class DigitisationController:
             )
 
         if not accepted:
+            self._last_capture_rejected = True
             return None
+
+        self._last_capture_rejected = False
 
         self.capture_position(position)
         return position
@@ -240,6 +244,12 @@ class DigitisationController:
             return
         self.current_label_idx += 1
         self._advance_if_needed()
+
+    def was_last_capture_rejected(self) -> bool:
+        """Check if last capture was rejected due to distance, and reset the flag."""
+        rejected = self._last_capture_rejected
+        self._last_capture_rejected = False
+        return rejected
 
     def calculate_distance(self, point1: tuple[float, float, float], point2: tuple[float, float, float]) -> float:
         """Calculate the Euclidean distance between two points."""

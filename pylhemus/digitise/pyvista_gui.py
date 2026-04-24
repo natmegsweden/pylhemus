@@ -710,7 +710,9 @@ class DigitisationMainWindow(QMainWindow):
         btn_row2.addWidget(self.finish_btn)
         right_panel.addLayout(btn_row2)
         
-        # Delete button (for continuous points) - RED
+        # Delete button (for continuous points) - RED - centered
+        delete_row = QHBoxLayout()
+        delete_row.addStretch(1)
         self.delete_btn = QPushButton("Delete\nPoint")
         self.delete_btn.setFixedSize(80, 80)
         self.delete_btn.setStyleSheet("""
@@ -735,7 +737,9 @@ class DigitisationMainWindow(QMainWindow):
             }
         """)
         self.delete_btn.setEnabled(False)
-        right_panel.addWidget(self.delete_btn)
+        delete_row.addWidget(self.delete_btn)
+        delete_row.addStretch(1)
+        right_panel.addLayout(delete_row)
         
         # Dev mode buttons
         if self._dev_mode:
@@ -1010,12 +1014,29 @@ class DigitisationMainWindow(QMainWindow):
             return
 
         if position is None:
-            self.progress_label.setText("Progress: waiting for FASTRAK data...")
+            # Check if this was a rejected point (too far)
+            if self.controller.was_last_capture_rejected():
+                self._show_faulty_warning()
+            else:
+                self.progress_label.setText("Progress: waiting for FASTRAK data...")
             return
 
         self.refresh_ui()
         if self.controller.is_finished:
             self._auto_capture_timer.stop()
+
+    def _show_faulty_warning(self):
+        """Show temporary warning banner for rejected/faulty points."""
+        if hasattr(self, "_faulty_warning_label"):
+            self._faulty_warning_label.hide()
+        else:
+            self._faulty_warning_label = QLabel("Faulty point rejected (>30cm)")
+            self._faulty_warning_label.setStyleSheet(
+                "background-color: #ff8800; color: white; padding: 5px; font-weight: bold; font-size: 12px;"
+            )
+            self.centralWidget().layout().insertWidget(0, self._faulty_warning_label)
+        self._faulty_warning_label.show()
+        QTimer.singleShot(1000, self._faulty_warning_label.hide)
 
     def on_undo(self):
         self.controller.undo()
@@ -1193,16 +1214,7 @@ class DigitisationMainWindow(QMainWindow):
             try:
                 position = self.controller.capture_from_connector()
                 if position is None:
-                    if hasattr(self, "_faulty_warning_label"):
-                        self._faulty_warning_label.hide()
-                    else:
-                        self._faulty_warning_label = QLabel("Faulty point rejected (>30cm)")
-                        self._faulty_warning_label.setStyleSheet(
-                            "background-color: #ff8800; color: white; padding: 5px; font-weight: bold; font-size: 12px;"
-                        )
-                        self.centralWidget().layout().insertWidget(0, self._faulty_warning_label)
-                    self._faulty_warning_label.show()
-                    QTimer.singleShot(1000, self._faulty_warning_label.hide)
+                    self._show_faulty_warning()
                 self.refresh_ui()
             except Exception as exc:
                 QMessageBox.warning(self, "Capture Error", str(exc))
