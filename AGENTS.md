@@ -64,6 +64,12 @@ Settings file (`default_settings.json`) is bundled as package data.
 - Table: 9 columns (participant_id, category, label, x, y, z, x', y', z')
 - Bidirectional selection: table row ↔ plot point (yellow highlight)
 
+### Cross-Platform Dark Theme
+- Explicit dark palette applied via `setup_dark_theme()`
+- Consistent appearance on macOS, Windows, and Linux
+- Fusion style used for uniform widget rendering
+- Explicit colors prevent white-on-white text issues
+
 ## No test/lint tooling
 
 There is no `pytest`, `ruff`, `mypy`, or pre-commit config. The docs site (`.github/workflows/ci.yml`) uses Jekyll CI only.

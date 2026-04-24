@@ -7,7 +7,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox
 
 from .digitise import FastrakConnector, DigitisationController, DigitisationMainWindow
-from .digitise.pyvista_gui import LaunchDialog
+from .digitise.pyvista_gui import LaunchDialog, setup_dark_theme
 from .settings import load_settings, resolve_settings_path
 
 
@@ -23,6 +23,9 @@ def launch_gui(
     dig_settings = settings.get("digitisation", {})
 
     app = QApplication.instance() or QApplication(sys.argv)
+    
+    # Apply consistent dark theme across platforms
+    setup_dark_theme(app)
 
     # Check for restore first
     autosave_data = None

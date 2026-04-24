@@ -8,6 +8,7 @@ import pandas as pd
 
 from PyQt5.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QMainWindow,
     QWidget,
     QVBoxLayout,
@@ -31,12 +32,91 @@ from PyQt5.QtWidgets import (
     QSizePolicy,
 )
 from PyQt5.QtCore import QTimer, Qt
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QPalette, QColor
 from pyvistaqt import QtInteractor
 
 from .controller import DigitisationController
 from ..settings import resolve_settings_path
 from ..template import __all__ as available_templates
+
+
+def setup_dark_theme(app: QApplication):
+    """Apply consistent dark theme across platforms (macOS, Windows, Linux)."""
+    # Set application style for consistency
+    app.setStyle("Fusion")
+    
+    # Create dark palette
+    dark_palette = QPalette()
+    
+    # Color definitions
+    dark_color = QColor(45, 45, 48)       # Main background
+    darker_color = QColor(30, 30, 33)     # Lighter elements
+    light_color = QColor(220, 220, 220)   # Text color
+    accent_color = QColor(0, 120, 212)    # Selection/highlight
+    
+    # Set palette colors
+    dark_palette.setColor(QPalette.Window, dark_color)
+    dark_palette.setColor(QPalette.WindowText, light_color)
+    dark_palette.setColor(QPalette.Base, darker_color)
+    dark_palette.setColor(QPalette.AlternateBase, dark_color)
+    dark_palette.setColor(QPalette.ToolTipBase, accent_color)
+    dark_palette.setColor(QPalette.ToolTipText, light_color)
+    dark_palette.setColor(QPalette.Text, light_color)
+    dark_palette.setColor(QPalette.Button, dark_color)
+    dark_palette.setColor(QPalette.ButtonText, light_color)
+    dark_palette.setColor(QPalette.BrightText, Qt.white)
+    dark_palette.setColor(QPalette.Link, accent_color)
+    dark_palette.setColor(QPalette.Highlight, accent_color)
+    dark_palette.setColor(QPalette.HighlightedText, Qt.white)
+    
+    # Disabled state colors
+    dark_palette.setColor(QPalette.Disabled, QPalette.WindowText, QColor(128, 128, 128))
+    dark_palette.setColor(QPalette.Disabled, QPalette.Text, QColor(128, 128, 128))
+    dark_palette.setColor(QPalette.Disabled, QPalette.ButtonText, QColor(128, 128, 128))
+    
+    app.setPalette(dark_palette)
+    
+    # Additional stylesheet for fine-tuning
+    app.setStyleSheet("""
+        QToolTip {
+            color: #ffffff;
+            background-color: #0078d4;
+            border: 1px solid #ffffff;
+            padding: 4px;
+        }
+        QComboBox {
+            background-color: #2d2d30;
+            color: #dcdcdc;
+            border: 1px solid #3e3e42;
+            padding: 4px;
+        }
+        QComboBox::drop-down {
+            border: none;
+        }
+        QComboBox QAbstractItemView {
+            background-color: #2d2d30;
+            color: #dcdcdc;
+            selection-background-color: #0078d4;
+        }
+        QLineEdit {
+            background-color: #252526;
+            color: #dcdcdc;
+            border: 1px solid #3e3e42;
+            padding: 4px;
+        }
+        QLineEdit:focus {
+            border: 1px solid #0078d4;
+        }
+        QListWidget {
+            background-color: #252526;
+            color: #dcdcdc;
+            border: 1px solid #3e3e42;
+        }
+        QListWidget::item:selected {
+            background-color: #0078d4;
+        }
+    """)
+
 
 _DEFAULT_SETTINGS_PATH = resolve_settings_path()
 
