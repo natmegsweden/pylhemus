@@ -601,6 +601,25 @@ class DigitisationMainWindow(QMainWindow):
             }
         """
         self.transform_toggle_btn.setStyleSheet(self._transform_off_style)
+
+        self.reset_view_btn = QPushButton("Reset\nView")
+        self.reset_view_btn.setFixedSize(60, 60)
+        self.reset_view_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #445566;
+                color: white;
+                border: 2px solid #667788;
+                border-radius: 4px;
+                font-weight: bold;
+                font-size: 10px;
+            }
+            QPushButton:hover {
+                background-color: #556677;
+            }
+            QPushButton:pressed {
+                background-color: #334455;
+            }
+        """)
         
         left_panel.addStretch(1)
         left_panel.addWidget(QLabel("Zoom"))
@@ -608,6 +627,8 @@ class DigitisationMainWindow(QMainWindow):
         left_panel.addWidget(self.zoom_value_label)
         left_panel.addSpacing(20)
         left_panel.addWidget(self.transform_toggle_btn)
+        left_panel.addSpacing(4)
+        left_panel.addWidget(self.reset_view_btn)
         left_panel.addStretch(1)
         
         main_row.addLayout(left_panel)
@@ -756,6 +777,7 @@ class DigitisationMainWindow(QMainWindow):
         self.delete_btn.clicked.connect(self.on_delete_point)
         self.zoom_slider.valueChanged.connect(self.on_zoom_changed)
         self.transform_toggle_btn.clicked.connect(self.on_toggle_transform_view)
+        self.reset_view_btn.clicked.connect(self.on_reset_view)
         self.table.itemSelectionChanged.connect(self.on_table_selection_changed)
 
         if self._dev_mode:
@@ -764,6 +786,19 @@ class DigitisationMainWindow(QMainWindow):
 
         # Enable point picking in plotter
         self.plotter.enable_point_picking(callback=self.on_plot_point_picked, show_message=False)
+
+        # Press 'p' to print camera state for tuning reset view
+        self.plotter.iren.add_observer("KeyPressEvent", self._on_keypress)
+
+    def _on_keypress(self, obj, event):
+        if obj.GetKeySym() == "p":
+            cam = self.plotter.camera
+            pos = cam.GetPosition()
+            fp = cam.GetFocalPoint()
+            up = cam.GetViewUp()
+            print(f"Camera position:  ({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f})")
+            print(f"Focal point:      ({fp[0]:.2f}, {fp[1]:.2f}, {fp[2]:.2f})")
+            print(f"View up:          ({up[0]:.3f}, {up[1]:.3f}, {up[2]:.3f})")
 
     def refresh_ui(self):
         category, target, progress = self.controller.status_text()
@@ -805,6 +840,38 @@ class DigitisationMainWindow(QMainWindow):
         if self.controller.has_valid_neuromag_transform():
             self._show_transformed = not self._show_transformed
             self.refresh_ui()
+
+    def on_reset_view(self):
+        self._zoom_factor = 1.0
+        self.zoom_slider.setValue(100)
+
+        df = self.controller.digitised_points
+        if df.empty:
+            self.plotter.reset_camera()
+            self._render_scene(highlight_row=self._selected_row)
+            return
+
+        if self._show_transformed and self.controller.has_valid_neuromag_transform():
+            coords = np.array([
+                self.controller.apply_neuromag_transform((r["x"], r["y"], r["z"]))
+                for _, r in df.iterrows()
+            ])
+        else:
+            coords = df[["x", "y", "z"]].astype(float).to_numpy()
+
+        center = coords.mean(axis=0)
+        radius = max(np.max(np.linalg.norm(coords - center, axis=1)), 10.0)
+        dist = radius * 3.0
+
+        camera = self.plotter.camera
+        camera.SetFocalPoint(*center)
+        direction = np.array([0.954, 0.238, -0.182])
+        direction /= np.linalg.norm(direction)
+        camera.SetPosition(*(center + direction * dist))
+        camera.SetViewUp(-0.160, -0.107, -0.981)
+        self._camera_initialized = True
+
+        self._render_scene(highlight_row=self._selected_row)
 
     def _render_scene(self, highlight_row=-1):
         self.plotter.clear()
@@ -1183,11 +1250,15 @@ class DigitisationMainWindow(QMainWindow):
         if point is None or len(self.controller.digitised_points) == 0:
             return
         
+        point = np.asarray(point, dtype=float).ravel()
+        if point.size != 3:
+            return
+        
         # Find closest point
         df = self.controller.digitised_points
-        coords = df[["x", "y", "z"]].values
+        coords = df[["x", "y", "z"]].values.astype(float)
         distances = np.linalg.norm(coords - point, axis=1)
-        closest_idx = np.argmin(distances)
+        closest_idx = int(np.argmin(distances))
         
         if distances[closest_idx] < 10:  # Within 10cm threshold
             self.table.selectRow(closest_idx)
