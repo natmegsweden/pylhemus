@@ -88,6 +88,14 @@ pylhemus gui --restore-last
 # Read FASTRAK settings
 pylhemus read-settings --port COM1 --out settings.json
 
+# Friendly FASTRAK command interface
+pylhemus talk --port COM1 status
+pylhemus talk --port COM1 receivers
+pylhemus talk --port COM1 station --id 1
+pylhemus talk --port COM1 dump-settings --out settings.json
+pylhemus talk --port COM1 set-units cm
+pylhemus talk --port COM1 send-raw S
+
 # Run without installing
 python -m pylhemus gui
 ```

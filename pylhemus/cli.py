@@ -6,6 +6,7 @@ from typing import Sequence
 
 from .gui import launch_gui
 from . import read_settings
+from . import talk
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,6 +39,14 @@ def build_parser() -> argparse.ArgumentParser:
     settings_parser.add_argument("--timeout", type=float, default=1.0, help="Serial read timeout in seconds (default: 1.0)")
     settings_parser.set_defaults(handler=_handle_read_settings)
 
+    talk_parser = subparsers.add_parser(
+        "talk",
+        help="Friendly FASTRAK command interface",
+        description="Run easier-to-understand FASTRAK commands"
+    )
+    talk_parser.add_argument("talk_args", nargs=argparse.REMAINDER, help="Arguments forwarded to 'pylhemus talk'")
+    talk_parser.set_defaults(handler=_handle_talk)
+
     return parser
 
 
@@ -63,3 +72,10 @@ def _handle_read_settings(args: argparse.Namespace) -> int:
         str(args.timeout),
     ]
     return read_settings.main(argv)
+
+
+def _handle_talk(args: argparse.Namespace) -> int:
+    talk_args = list(args.talk_args)
+    if talk_args and talk_args[0] == "--":
+        talk_args = talk_args[1:]
+    return talk.main(talk_args)
