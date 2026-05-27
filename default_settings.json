@@ -3,6 +3,11 @@
   "digitisation": {
     "capture_interval_ms": 100,
     "output_dir": "output",
+    "point_sounds": {
+      "single": "sounds/clink.wav",
+      "continuous": "sounds/click2.wav",
+      "faulty": "sounds/error.wav"
+    },
     "category_colors": {
       "OPM": "royalblue",
       "head": "lightgray",

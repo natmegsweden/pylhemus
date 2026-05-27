@@ -31,8 +31,9 @@ from PyQt5.QtWidgets import (
     QToolButton,
     QSizePolicy,
 )
-from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtCore import QTimer, Qt, QUrl
 from PyQt5.QtGui import QFont, QPalette, QColor
+from PyQt5.QtMultimedia import QSoundEffect
 from pyvistaqt import QtInteractor
 
 from .controller import DigitisationController
@@ -123,6 +124,11 @@ _DEFAULT_SETTINGS_PATH = resolve_settings_path()
 _DEFAULT_DIGITISATION_SETTINGS = {
     "capture_interval_ms": 100,
     "output_dir": "output",
+    "point_sounds": {
+        "single": "sounds/click3.wav",
+        "continuous": "sounds/click5.wav",
+        "faulty": "sounds/error.wav",
+    },
     "category_colors": {
         "OPM": "royalblue",
         "head": "lightgray",
@@ -155,6 +161,53 @@ def _load_dig_settings(settings_path: Path | None = None) -> dict:
         data = json.loads(path.read_text(encoding="utf-8"))
         return _merge_digitisation_settings(data.get("digitisation", {}))
     return _merge_digitisation_settings({})
+
+
+def _resolve_sound_path(sound_path: str, settings_path: Path | None = None) -> Path | None:
+    candidate = Path(sound_path)
+    if candidate.is_absolute():
+        return candidate if candidate.exists() else None
+
+    search_roots = []
+    if settings_path is not None:
+        search_roots.append(settings_path.parent)
+    search_roots.append(Path(__file__).resolve().parents[1])
+    search_roots.append(Path.cwd())
+
+    for root in search_roots:
+        resolved = root / candidate
+        if resolved.exists():
+            return resolved
+    return None
+
+
+class _PointSoundManager:
+    def __init__(self, parent, settings_path: Path | None, mapping: dict[str, str] | None = None):
+        self._settings_path = settings_path
+        self._effects: dict[str, QSoundEffect] = {}
+
+        for event_name, sound_path in (mapping or {}).items():
+            if not sound_path:
+                continue
+            resolved = _resolve_sound_path(str(sound_path), settings_path)
+            if resolved is None:
+                continue
+            effect = QSoundEffect(parent)
+            effect.setSource(QUrl.fromLocalFile(str(resolved)))
+            effect.setLoopCount(1)
+            effect.setVolume(0.8)
+            self._effects[event_name] = effect
+
+    def play(self, event_name: str):
+        effect = self._effects.get(event_name)
+        if effect is not None:
+            effect.play()
+
+    def play_point_sound(self, dig_type: str):
+        self.play(dig_type)
+
+    def play_faulty_sound(self):
+        self.play("faulty")
 
 
 # ---------------------------------------------------------------------------
@@ -498,6 +551,9 @@ class DigitisationMainWindow(QMainWindow):
         dig = _load_dig_settings(self._settings_path)
         interval = int(dig.get("capture_interval_ms", 100))
         self._category_colors: dict = dig.get("category_colors", {})
+        self._sound_manager = _PointSoundManager(self, self._settings_path, dig.get("point_sounds", {}))
+        self.controller.on_point_added = self._sound_manager.play_point_sound
+        self.controller.on_capture_rejected = self._sound_manager.play_faulty_sound
 
         self._auto_capture_timer = QTimer(self)
         self._auto_capture_timer.setInterval(interval)
