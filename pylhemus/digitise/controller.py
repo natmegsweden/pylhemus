@@ -77,6 +77,7 @@ class DigitisationController:
         self.current_scheme_idx = 0
         self.current_label_idx = 0
         self.participant_id: str = ""
+        self.project: str = ""
         self._neuromag_transform: np.ndarray | None = None
         self._transform_valid: bool = False
         self._auto_switched_to_transformed: bool = False
@@ -334,6 +335,7 @@ class DigitisationController:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "participant_id": self.participant_id,
+            "project": self.project,
             "current_scheme_idx": self.current_scheme_idx,
             "current_label_idx": self.current_label_idx,
             "scheme": [
@@ -370,6 +372,7 @@ class DigitisationController:
         
         payload = {
             "participant_id": self.participant_id,
+            "project": self.project,
             "current_scheme_idx": self.current_scheme_idx,
             "current_label_idx": self.current_label_idx,
             "transform_valid": self._transform_valid,
@@ -411,6 +414,7 @@ class DigitisationController:
             self.scheme = loaded_scheme
 
         self.participant_id = str(payload.get("participant_id", ""))
+        self.project = str(payload.get("project", ""))
         self.current_scheme_idx = int(payload.get("current_scheme_idx", 0))
         self.current_label_idx = int(payload.get("current_label_idx", 0))
 

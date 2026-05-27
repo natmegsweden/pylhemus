@@ -158,37 +158,6 @@ def _load_dig_settings(settings_path: Path | None = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Participant dialog
-# ---------------------------------------------------------------------------
-
-class ParticipantDialog(QDialog):
-    """Modal dialog shown at startup to capture participant ID."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("New Digitisation Session")
-        self.setFixedSize(340, 160)
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Participant ID:"))
-        self.id_edit = QLineEdit()
-        self.id_edit.setPlaceholderText("e.g. sub-001")
-        layout.addWidget(self.id_edit)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-        self.id_edit.returnPressed.connect(self._on_accept)
-
-    def _on_accept(self):
-        if not self.id_edit.text().strip():
-            QMessageBox.warning(self, "Required", "Participant ID cannot be empty.")
-            return
-        self.accept()
-
-
-# ---------------------------------------------------------------------------
 # Add-item sub-dialog
 # ---------------------------------------------------------------------------
 
@@ -421,13 +390,13 @@ class SchemaEditorDialog(QDialog):
 # ---------------------------------------------------------------------------
 
 class LaunchDialog(QDialog):
-    """Startup dialog: enter participant ID and select schema preset."""
+    """Startup dialog: enter participant ID and project, select schema preset."""
 
     def __init__(self, settings_path: Path | None = None, parent=None):
         super().__init__(parent)
         self.settings_path = settings_path or _DEFAULT_SETTINGS_PATH
         self.setWindowTitle("OPM Digitisation — New Session")
-        self.setFixedSize(420, 200)
+        self.setFixedSize(420, 260)
 
         dig = _load_dig_settings(self.settings_path)
         self._presets: dict = dig.get("schema_presets", {})
@@ -435,6 +404,10 @@ class LaunchDialog(QDialog):
 
         layout = QVBoxLayout(self)
         form = QFormLayout()
+
+        self.project_edit = QLineEdit()
+        self.project_edit.setPlaceholderText("e.g. MEG001")
+        form.addRow("Project:", self.project_edit)
 
         self.id_edit = QLineEdit()
         self.id_edit.setPlaceholderText("e.g. sub-001")
@@ -450,7 +423,7 @@ class LaunchDialog(QDialog):
         schema_row.addWidget(self.schema_combo, stretch=1)
 
         manage_btn = QToolButton()
-        manage_btn.setText("⚙")
+        manage_btn.setText("\u2699")
         manage_btn.setToolTip("Manage schema presets")
         manage_btn.clicked.connect(self._open_schema_editor)
         schema_row.addWidget(manage_btn)
@@ -463,12 +436,20 @@ class LaunchDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         self.id_edit.returnPressed.connect(self._on_accept)
+        self.project_edit.returnPressed.connect(self._on_accept)
 
     def _on_accept(self):
+        if not self.project_edit.text().strip():
+            QMessageBox.warning(self, "Required", "Project cannot be empty.")
+            return
         if not self.id_edit.text().strip():
             QMessageBox.warning(self, "Required", "Participant ID cannot be empty.")
             return
         self.accept()
+
+    @property
+    def project(self) -> str:
+        return self.project_edit.text().strip()
 
     @property
     def participant_id(self) -> str:
@@ -784,11 +765,6 @@ class DigitisationMainWindow(QMainWindow):
         # Enable point picking in plotter
         self.plotter.enable_point_picking(callback=self.on_plot_point_picked, show_message=False)
 
-    def _open_settings(self):
-        dlg = SchemaEditorDialog(settings_path=self._settings_path, parent=self)
-        dlg.exec_()
-
-
     def refresh_ui(self):
         category, target, progress = self.controller.status_text()
         self.category_label.setText(f"Category: {category}")
@@ -1044,41 +1020,20 @@ class DigitisationMainWindow(QMainWindow):
         if not self.controller.is_finished and not self._dev_mode and not self._auto_capture_timer.isActive():
             self._auto_capture_timer.start()
 
-    def on_next(self):
-        self.controller.next_target()
-        self.refresh_ui()
-
     def on_save_csv(self):
         pid = getattr(self.controller, "participant_id", "") or "digitisation"
         default_name = f"digitisation_sub-{pid}.csv"
         dig = _load_dig_settings(self._settings_path)
-        output_dir = str(Path(dig.get("output_dir", "output")).resolve())
+        output_dir = Path(dig.get("output_dir", "output")).resolve()
+        project = getattr(self.controller, "project", "") or ""
+        if project:
+            output_dir = output_dir / project
         path, _ = QFileDialog.getSaveFileName(self, "Save digitisation CSV",
-                                              str(Path(output_dir) / default_name), "CSV (*.csv)")
+                                              str(output_dir / default_name), "CSV (*.csv)")
         if not path:
             return
         self.controller.save_csv(Path(path))
         self._session_saved = True
-
-    def on_save_session(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Save session", "", "JSON (*.json)")
-        if not path:
-            return
-        self.controller.save_session(Path(path))
-        self._session_saved = True
-
-    def on_load_session(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Load session", "", "JSON (*.json)")
-        if not path:
-            return
-
-        try:
-            self.controller.load_session(Path(path))
-            self.refresh_ui()
-            if not self.controller.is_finished and not self._dev_mode and not self._auto_capture_timer.isActive():
-                self._auto_capture_timer.start()
-        except Exception as exc:
-            QMessageBox.critical(self, "Load session failed", str(exc))
 
     def _auto_save_session(self):
         """Auto-save session every 5 seconds to temp file."""
@@ -1091,30 +1046,13 @@ class DigitisationMainWindow(QMainWindow):
         # Use temp directory for auto-save
         temp_dir = tempfile.gettempdir()
         pid = getattr(self.controller, "participant_id", "") or "pylhemus"
-        autosave_path = Path(temp_dir) / f"digitisation_sub-{pid}_autosave.json"
+        proj = getattr(self.controller, "project", "") or ""
+        prefix = f"digitisation_{proj}_sub-" if proj else "digitisation_sub-"
+        autosave_path = Path(temp_dir) / f"{prefix}{pid}_autosave.json"
         try:
             self.controller.save_session_with_transform(autosave_path)
         except Exception:
             pass  # Silent fail for auto-save
-
-    def on_table_item_changed(self, _item):
-        if self._updating_table:
-            return
-
-        row = self.table.currentRow()
-        if row < 0:
-            return
-
-        try:
-            category = self.table.item(row, 1).text()
-            label = self.table.item(row, 2).text()
-            x = float(self.table.item(row, 3).text())
-            y = float(self.table.item(row, 4).text())
-            z = float(self.table.item(row, 5).text())
-            self.controller.update_point(row, category, label, x, y, z)
-            self.refresh_ui()
-        except Exception as exc:
-            QMessageBox.warning(self, "Invalid table edit", str(exc))
 
     def closeEvent(self, event):
         if self._auto_capture_timer.isActive():

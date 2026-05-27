@@ -29,6 +29,7 @@ def launch_gui(
 
     # Check for restore first
     autosave_data = None
+    found_autosave_path = None
     if restore_last:
         import tempfile
         # Try to find any autosave file
@@ -36,10 +37,10 @@ def launch_gui(
         autosave_files = list(temp_dir.glob(f"digitisation_*_autosave.json"))
         if autosave_files:
             # Use the most recent one
-            autosave_path = max(autosave_files, key=lambda p: p.stat().st_mtime)
+            found_autosave_path = max(autosave_files, key=lambda p: p.stat().st_mtime)
             try:
-                autosave_data = json.loads(autosave_path.read_text(encoding="utf-8"))
-                print(f"Restoring from: {autosave_path}")
+                autosave_data = json.loads(found_autosave_path.read_text(encoding="utf-8"))
+                print(f"Restoring from: {found_autosave_path}")
             except Exception as exc:
                 QMessageBox.warning(None, "Restore Failed", f"Could not read autosave: {exc}")
                 autosave_data = None
@@ -47,6 +48,7 @@ def launch_gui(
     # Skip LaunchDialog if restoring
     if autosave_data:
         participant_id = autosave_data.get("participant_id", "restored")
+        project = autosave_data.get("project", "")
         # Use schema from autosave
         schema_items = [
             {
@@ -63,6 +65,7 @@ def launch_gui(
         if launch.exec_() != QDialog.Accepted:
             return 0
         participant_id = launch.participant_id
+        project = launch.project
         schema_items = launch.selected_schema()
 
     com_port = serial_port or settings.get("serial_port", "COM1")
@@ -70,6 +73,8 @@ def launch_gui(
     output_path = Path(configured_output_dir)
     if not output_path.is_absolute():
         output_path = Path.cwd() / output_path
+    if project:
+        output_path = output_path / project
     output_path.mkdir(parents=True, exist_ok=True)
 
     connector = None
@@ -94,26 +99,24 @@ def launch_gui(
 
     controller = DigitisationController(connector=connector)
     controller.participant_id = participant_id
+    controller.project = project
     for item in schema_items:
         if item.get("dig_type") == "continuous" and "n_points" not in item:
             item["n_points"] = 60
         controller.add(**item)
 
     # Restore from autosave data if available
-    if autosave_data:
-        import tempfile
-        autosave_path = Path(tempfile.gettempdir()) / f"digitisation_sub-{participant_id}_autosave.json"
-        if autosave_path.exists():
-            try:
-                controller.load_session(autosave_path)
-                # Restore transform state
-                controller._auto_switched_to_transformed = autosave_data.get("auto_switched_to_transformed", False)
-                # Recompute transform from loaded fiducials
-                controller.update_neuromag_transform(force=True)
-                # Sync indices to continue from last captured position
-                controller.sync_indices_to_captured_points()
-            except Exception as exc:
-                QMessageBox.warning(None, "Restore Failed", f"Could not restore session: {exc}")
+    if autosave_data and found_autosave_path:
+        try:
+            controller.load_session(found_autosave_path)
+            # Restore transform state
+            controller._auto_switched_to_transformed = autosave_data.get("auto_switched_to_transformed", False)
+            # Recompute transform from loaded fiducials
+            controller.update_neuromag_transform(force=True)
+            # Sync indices to continue from last captured position
+            controller.sync_indices_to_captured_points()
+        except Exception as exc:
+            QMessageBox.warning(None, "Restore Failed", f"Could not restore session: {exc}")
 
     window = DigitisationMainWindow(controller=controller, settings_path=resolved_settings_path, dev_mode=dev_mode)
     window.show()
