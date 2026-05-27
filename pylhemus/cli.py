@@ -51,8 +51,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    forwarded_argv = list(argv) if argv is not None else None
+
+    # Forward talk arguments directly so flags like "--port" are parsed by
+    # pylhemus.talk instead of the top-level parser.
+    if forwarded_argv and forwarded_argv[0] == "talk":
+        return talk.main(forwarded_argv[1:])
+
     parser = build_parser()
-    args = parser.parse_args(list(argv) if argv is not None else None)
+    args = parser.parse_args(forwarded_argv)
     return args.handler(args)
 
 
