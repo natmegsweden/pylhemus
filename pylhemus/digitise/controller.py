@@ -176,8 +176,16 @@ class DigitisationController:
         if position is None:
             return None
 
-        stylus_point = tuple(float(sensor_data[axis, 0]) for axis in range(1, 4))
-        head_point = tuple(float(sensor_data[axis, 1]) for axis in range(1, 4))
+        stylus_point: tuple[float, float, float] = (
+            float(sensor_data[1, 0]),
+            float(sensor_data[2, 0]),
+            float(sensor_data[3, 0]),
+        )
+        head_point: tuple[float, float, float] = (
+            float(sensor_data[1, 1]),
+            float(sensor_data[2, 1]),
+            float(sensor_data[3, 1]),
+        )
         distance = self.calculate_distance(stylus_point, head_point)
         next_idx, accepted = self.idx_of_next_point(distance, self.current_label_idx)
 
@@ -537,7 +545,7 @@ class DigitisationController:
         v1 = nas - lpa
         v2 = rpa - lpa
         cross = np.cross(v1, v2)
-        return np.linalg.norm(cross) < 1e-6
+        return bool(np.linalg.norm(cross) < 1e-6)
 
     def update_neuromag_transform(self, force: bool = False):
         if self._transform_valid and not force:
