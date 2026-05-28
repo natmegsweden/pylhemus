@@ -189,25 +189,41 @@ class _PointSoundManager:
         for event_name, sound_path in (mapping or {}).items():
             if not sound_path:
                 continue
-            resolved = _resolve_sound_path(str(sound_path), settings_path)
-            if resolved is None:
-                continue
-            effect = QSoundEffect(parent)
-            effect.setSource(QUrl.fromLocalFile(str(resolved)))
-            effect.setLoopCount(1)
-            effect.setVolume(0.8)
-            self._effects[event_name] = effect
+            try:
+                resolved = _resolve_sound_path(str(sound_path), settings_path)
+                if resolved is None:
+                    continue
+                effect = QSoundEffect(parent)
+                effect.setSource(QUrl.fromLocalFile(str(resolved)))
+                effect.setLoopCount(1)
+                effect.setVolume(0.8)
+                self._effects[event_name] = effect
+            except Exception:
+                # Silently ignore sound loading errors
+                pass
 
     def play(self, event_name: str):
         effect = self._effects.get(event_name)
         if effect is not None:
-            effect.play()
+            try:
+                effect.play()
+            except Exception:
+                # Silently ignore sound playback errors so they don't break UI
+                pass
 
     def play_point_sound(self, dig_type: str):
-        self.play(dig_type)
+        try:
+            self.play(dig_type)
+        except Exception:
+            # Silently ignore sound errors so they don't break button handlers
+            pass
 
     def play_faulty_sound(self):
-        self.play("faulty")
+        try:
+            self.play("faulty")
+        except Exception:
+            # Silently ignore sound errors so they don't break button handlers
+            pass
 
 
 # ---------------------------------------------------------------------------
