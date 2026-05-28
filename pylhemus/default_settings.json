@@ -4,6 +4,11 @@
     "_comment": "Admin-only settings. Change these only if you know what you are doing.",
     "capture_interval_ms": 100,
     "output_dir": "output",
+    "point_sounds": {
+      "single": "sounds/click.wav",
+      "continuous": "sounds/click4.wav",
+      "faulty": "sounds/error.wav"
+    },
     "category_colors": {
       "OPM": "royalblue",
       "head": "lightgray",

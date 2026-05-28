@@ -31,8 +31,9 @@ from PyQt5.QtWidgets import (
     QToolButton,
     QSizePolicy,
 )
-from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtCore import QTimer, Qt, QUrl
 from PyQt5.QtGui import QFont, QPalette, QColor
+from PyQt5.QtMultimedia import QSoundEffect
 from pyvistaqt import QtInteractor
 
 from .controller import DigitisationController
@@ -123,6 +124,11 @@ _DEFAULT_SETTINGS_PATH = resolve_settings_path()
 _DEFAULT_DIGITISATION_SETTINGS = {
     "capture_interval_ms": 100,
     "output_dir": "output",
+    "point_sounds": {
+        "single": "sounds/click3.wav",
+        "continuous": "sounds/click5.wav",
+        "faulty": "sounds/error.wav",
+    },
     "category_colors": {
         "OPM": "royalblue",
         "head": "lightgray",
@@ -155,6 +161,78 @@ def _load_dig_settings(settings_path: Path | None = None) -> dict:
         data = json.loads(path.read_text(encoding="utf-8"))
         return _merge_digitisation_settings(data.get("digitisation", {}))
     return _merge_digitisation_settings({})
+
+
+def _resolve_sound_path(sound_path: str, settings_path: Path | None = None) -> Path | None:
+    candidate = Path(sound_path)
+    if candidate.is_absolute():
+        return candidate if candidate.exists() else None
+
+    search_roots = []
+    if settings_path is not None:
+        search_roots.append(settings_path.parent)
+    search_roots.append(Path(__file__).resolve().parents[1])
+    search_roots.append(Path.cwd())
+
+    for root in search_roots:
+        resolved = root / candidate
+        if resolved.exists():
+            return resolved
+    return None
+
+
+class _PointSoundManager:
+    def __init__(self, parent, settings_path: Path | None, mapping: dict[str, str] | None = None):
+        self._parent = parent
+        self._settings_path = settings_path
+        self._mapping = mapping or {}
+        self._effects: dict[str, QSoundEffect] = {}
+
+    def _ensure_loaded(self, event_name: str):
+        if event_name in self._effects:
+            return
+
+        sound_path = self._mapping.get(event_name)
+        if not sound_path:
+            return
+
+        try:
+            resolved = _resolve_sound_path(str(sound_path), self._settings_path)
+            if resolved is None:
+                return
+            effect = QSoundEffect(self._parent)
+            effect.setSource(QUrl.fromLocalFile(str(resolved)))
+            effect.setLoopCount(1)
+            effect.setVolume(0.8)
+            self._effects[event_name] = effect
+        except Exception:
+            # Silently ignore sound loading errors
+            pass
+
+    def play(self, event_name: str):
+        self._ensure_loaded(event_name)
+        effect = self._effects.get(event_name)
+        if effect is None:
+            return
+        try:
+            effect.play()
+        except Exception:
+            # Silently ignore sound playback errors so they don't break UI
+            pass
+
+    def play_point_sound(self, dig_type: str):
+        try:
+            self.play(dig_type)
+        except Exception:
+            # Silently ignore sound errors so they don't break button handlers
+            pass
+
+    def play_faulty_sound(self):
+        try:
+            self.play("faulty")
+        except Exception:
+            # Silently ignore sound errors so they don't break button handlers
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -498,10 +576,15 @@ class DigitisationMainWindow(QMainWindow):
         dig = _load_dig_settings(self._settings_path)
         interval = int(dig.get("capture_interval_ms", 100))
         self._category_colors: dict = dig.get("category_colors", {})
+        self._sound_manager = _PointSoundManager(self, self._settings_path, dig.get("point_sounds", {}))
 
         self._auto_capture_timer = QTimer(self)
         self._auto_capture_timer.setInterval(interval)
         self._auto_capture_timer.timeout.connect(self.on_auto_capture_tick)
+
+        self._faulty_warning_timer = QTimer(self)
+        self._faulty_warning_timer.setSingleShot(True)
+        self._faulty_warning_timer.timeout.connect(self._hide_faulty_warning)
 
         pid = getattr(controller, "participant_id", "") or ""
         title = f"OPM Digitisation — subject: {pid}" if pid else "OPM Digitisation GUI"
@@ -1059,11 +1142,17 @@ class DigitisationMainWindow(QMainWindow):
         if position is None:
             # Check if this was a rejected point (too far)
             if self.controller.was_last_capture_rejected():
+                self._sound_manager.play_faulty_sound()
                 self._show_faulty_warning()
             else:
-                self.progress_label.setText("Progress: waiting for FASTRAK data...")
+                waiting_msg = "Progress: waiting for FASTRAK data..."
+                if self.progress_label.text() != waiting_msg:
+                    self.progress_label.setText(waiting_msg)
             return
 
+        active_item = self.controller.current_item
+        active_dig_type = active_item.dig_type if active_item is not None else "single"
+        self._sound_manager.play_point_sound(active_dig_type)
         self.refresh_ui()
         if self.controller.is_finished:
             self._auto_capture_timer.stop()
@@ -1079,7 +1168,11 @@ class DigitisationMainWindow(QMainWindow):
             )
             self.centralWidget().layout().insertWidget(0, self._faulty_warning_label)
         self._faulty_warning_label.show()
-        QTimer.singleShot(1000, self._faulty_warning_label.hide)
+        self._faulty_warning_timer.start(1000)
+
+    def _hide_faulty_warning(self):
+        if hasattr(self, "_faulty_warning_label"):
+            self._faulty_warning_label.hide()
 
     def on_undo(self):
         self.controller.undo()
@@ -1198,10 +1291,13 @@ class DigitisationMainWindow(QMainWindow):
 
         connector = self.controller.connector
         if hasattr(connector, "inject_point"):
+            active_item = self.controller.current_item
+            active_dig_type = active_item.dig_type if active_item is not None else "single"
             connector.inject_point(faulty=False)
             try:
                 position = self.controller.capture_from_connector()
                 if position is not None:
+                    self._sound_manager.play_point_sound(active_dig_type)
                     self.refresh_ui()
             except Exception as exc:
                 QMessageBox.warning(self, "Capture Error", str(exc))
@@ -1219,7 +1315,12 @@ class DigitisationMainWindow(QMainWindow):
             try:
                 position = self.controller.capture_from_connector()
                 if position is None:
+                    self._sound_manager.play_faulty_sound()
                     self._show_faulty_warning()
+                else:
+                    active_item = self.controller.current_item
+                    active_dig_type = active_item.dig_type if active_item is not None else "single"
+                    self._sound_manager.play_point_sound(active_dig_type)
                 self.refresh_ui()
             except Exception as exc:
                 QMessageBox.warning(self, "Capture Error", str(exc))
