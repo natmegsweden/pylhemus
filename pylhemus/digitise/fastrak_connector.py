@@ -125,7 +125,6 @@ class FastrakConnector:
         # Read line-based FASTRAK records; avoid fixed byte thresholds because
         # firmware/config can change record length and break click-triggered capture.
         sensor_data = np.zeros((7, self.n_receivers))
-        button_states = {}  # Track button state per receiver for logging
 
         j = 0
         read_start = time.time()
@@ -146,20 +145,10 @@ class FastrakConnector:
                 # Skip non-sample/status/error lines.
                 continue
 
-            # Check stylus button state (on receiver 0, stylus receiver)
-            button_pressed = self.is_button_pressed(header)
-            
-            # Extract station from header (second digit when header is 2-digit format)
-            # For "21" -> 1, "22" -> 2, etc.
-            station_id = header % 10
-            button_states[station_id] = button_pressed
-
             if self.debug_serial:
-                button_str = "BUTTON PRESSED" if button_pressed else "button off"
                 print(
                     "[FASTRAK PARSED] "
-                    f"header={header} {button_str} | "
-                    f"x={x:.3f} y={y:.3f} z={z:.3f} "
+                    f"header={header} x={x:.3f} y={y:.3f} z={z:.3f} "
                     f"az={azimuth:.3f} el={elevation:.3f} roll={roll:.3f}"
                 )
 
@@ -171,11 +160,6 @@ class FastrakConnector:
             sensor_data[5, j] = elevation
             sensor_data[6, j] = roll
             j += 1
-
-        # Check if stylus button was pressed for the stylus receiver
-        stylus_button_pressed = button_states.get(self.stylus_receiver, False)
-        if self.debug_serial:
-            print(f"[STYLUS BUTTON] receiver={self.stylus_receiver} pressed={stylus_button_pressed}")
 
         # Get sensor position relative to head reference
         sensor_position = self.rotate_and_translate(
@@ -190,12 +174,6 @@ class FastrakConnector:
             sensor_data[3, self.stylus_receiver],
         )
 
-        # Only return position if stylus button is pressed
-        if not stylus_button_pressed:
-            if self.debug_serial:
-                print("[CAPTURE REJECTED] Stylus button not pressed")
-            return sensor_data, None
-        
         return sensor_data, sensor_position[:3]
 
     @staticmethod
@@ -254,8 +232,7 @@ class FastrakConnector:
     @staticmethod
     def ftformat(data):
         """
-        Extract specific character slices from the data from the fastrak and convert them to appropriate types.
-        Header encodes frame/status info including button state (bit 6 typically for stylus button).
+        Extract specific character slices from the data from the fastrak and convert them to appropriate types
         """
         
         header = int(
@@ -271,16 +248,3 @@ class FastrakConnector:
         roll = float(data[38:46].strip())
 
         return header, x, y, z, azimuth, elevation, roll
-
-    @staticmethod
-    def is_button_pressed(header: int) -> bool:
-        """
-        Check if stylus button is pressed from FASTRAK header value.
-        In Polhemus FASTRAK ASCII format, bit 6 (0x40) of the status byte indicates button press.
-        Header ranges: 0-63 (no button), 64-127 (button pressed).
-        
-        This implementation checks if header >= 64 or if bit 6 is set.
-        Note: Verify against actual FASTRAK output values if not working correctly.
-        """
-        # Most likely: button = bit 6 of the status/frame byte
-        return bool(header & 0x40)  # Check bit 6 (64)
