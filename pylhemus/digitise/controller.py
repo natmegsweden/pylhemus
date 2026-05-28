@@ -5,7 +5,7 @@ from pathlib import Path
 import json
 import math
 import os
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -82,8 +82,6 @@ class DigitisationController:
         self._transform_valid: bool = False
         self._auto_switched_to_transformed: bool = False
         self._last_capture_rejected: bool = False
-        self.on_point_added: Callable[[str], None] | None = None
-        self.on_capture_rejected: Callable[[], None] | None = None
 
         for item in digitisation_scheme or []:
             self.add(**item)
@@ -192,8 +190,6 @@ class DigitisationController:
 
         if not accepted:
             self._last_capture_rejected = True
-            if callable(self.on_capture_rejected):
-                self.on_capture_rejected()
             return None
 
         self._last_capture_rejected = False
@@ -239,9 +235,6 @@ class DigitisationController:
             }
         )
         self.digitised_points = pd.concat([self.digitised_points, new_data], ignore_index=True)
-
-        if callable(self.on_point_added):
-            self.on_point_added(item.dig_type)
 
         self.current_label_idx += 1
         self._advance_if_needed()
