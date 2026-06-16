@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox
 
 from .digitise import FastrakConnector, DigitisationController, DigitisationMainWindow
 from .digitise.pyvista_gui import LaunchDialog, setup_dark_theme
-from .settings import load_settings, resolve_settings_path
+from .settings_loader import load_settings
 
 
 def launch_gui(
@@ -18,8 +18,7 @@ def launch_gui(
     dev_mode: bool = False,
     restore_last: bool = False,
 ) -> int:
-    resolved_settings_path = resolve_settings_path(settings_path)
-    settings = load_settings(resolved_settings_path)
+    settings = load_settings()
     dig_settings = settings.get("digitisation", {})
 
     app = QApplication.instance() or QApplication(sys.argv)
@@ -61,7 +60,7 @@ def launch_gui(
         ]
     else:
         # Show LaunchDialog for new session
-        launch = LaunchDialog(settings_path=resolved_settings_path)
+        launch = LaunchDialog()
         if launch.exec_() != QDialog.Accepted:
             return 0
         participant_id = launch.participant_id
@@ -118,7 +117,7 @@ def launch_gui(
         except Exception as exc:
             QMessageBox.warning(None, "Restore Failed", f"Could not restore session: {exc}")
 
-    window = DigitisationMainWindow(controller=controller, settings_path=resolved_settings_path, dev_mode=dev_mode)
+    window = DigitisationMainWindow(controller=controller, dev_mode=dev_mode)
     window.show()
     exit_code = app.exec_()
 

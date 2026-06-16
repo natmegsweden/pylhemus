@@ -37,8 +37,8 @@ from PyQt5.QtMultimedia import QSoundEffect
 from pyvistaqt import QtInteractor
 
 from .controller import DigitisationController
-from ..settings import resolve_settings_path
-from ..template import __all__ as available_templates
+from ..settings_loader import load_settings
+from ..template.registry import list_templates, create_template
 
 
 def setup_dark_theme(app: QApplication):
@@ -119,60 +119,20 @@ def setup_dark_theme(app: QApplication):
     """)
 
 
-_DEFAULT_SETTINGS_PATH = resolve_settings_path()
-
-_DEFAULT_DIGITISATION_SETTINGS = {
-    "capture_interval_ms": 100,
-    "output_dir": "output",
-    "point_sounds": {
-        "single": "sounds/click3.wav",
-        "continuous": "sounds/click5.wav",
-        "faulty": "sounds/error.wav",
-    },
-    "category_colors": {
-        "OPM": "royalblue",
-        "head": "lightgray",
-        "fiducials": "seagreen",
-        "EEG": "orchid",
-        "HPI_coils": "darkorange",
-    },
-    "default_schema_preset": "standard",
-    "schema_presets": {
-        "standard": [
-            {"category": "fiducials", "labels": ["lpa", "nasion", "rpa"], "dig_type": "single"},
-            {"category": "HPI_coils", "labels": ["hpi1", "hpi2", "hpi3", "hpi4"], "dig_type": "single"},
-            {"category": "head", "dig_type": "continuous", "n_points": 60},
-        ]
-    },
-}
+def _load_dig_settings() -> dict:
+    settings = load_settings()
+    return settings.get("digitisation", {})
 
 
-def _merge_digitisation_settings(overrides: dict) -> dict:
-    merged = json.loads(json.dumps(_DEFAULT_DIGITISATION_SETTINGS))
-    merged.update({k: v for k, v in overrides.items() if k != "category_colors" and k != "schema_presets"})
-    merged["category_colors"].update(overrides.get("category_colors", {}))
-    merged["schema_presets"].update(overrides.get("schema_presets", {}))
-    return merged
-
-
-def _load_dig_settings(settings_path: Path | None = None) -> dict:
-    path = settings_path or _DEFAULT_SETTINGS_PATH
-    if path.exists():
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return _merge_digitisation_settings(data.get("digitisation", {}))
-    return _merge_digitisation_settings({})
-
-
-def _resolve_sound_path(sound_path: str, settings_path: Path | None = None) -> Path | None:
+def _resolve_sound_path(sound_path: str) -> Path | None:
     candidate = Path(sound_path)
     if candidate.is_absolute():
         return candidate if candidate.exists() else None
 
-    search_roots = []
-    if settings_path is not None:
-        search_roots.append(settings_path.parent)
-    search_roots.append(Path(__file__).resolve().parents[1])
-    search_roots.append(Path.cwd())
+    search_roots = [
+        Path(__file__).resolve().parents[1],
+        Path.cwd(),
+    ]
 
     for root in search_roots:
         resolved = root / candidate
@@ -182,9 +142,8 @@ def _resolve_sound_path(sound_path: str, settings_path: Path | None = None) -> P
 
 
 class _PointSoundManager:
-    def __init__(self, parent, settings_path: Path | None, mapping: dict[str, str] | None = None):
+    def __init__(self, parent, mapping: dict[str, str] | None = None):
         self._parent = parent
-        self._settings_path = settings_path
         self._mapping = mapping or {}
         self._effects: dict[str, QSoundEffect] = {}
 
@@ -197,7 +156,7 @@ class _PointSoundManager:
             return
 
         try:
-            resolved = _resolve_sound_path(str(sound_path), self._settings_path)
+            resolved = _resolve_sound_path(str(sound_path))
             if resolved is None:
                 return
             effect = QSoundEffect(self._parent)
@@ -262,8 +221,9 @@ class _AddSchemaItemDialog(QDialog):
 
         self.template_combo = QComboBox()
         self.template_combo.addItem("None")
-        self.template_combo.addItems(available_templates)  # Dynamically populate from __init__.pyi
+        self.template_combo.addItems(list_templates())
         self.template_combo.setCurrentText(self.item_data.get("template", "None"))
+        self.template_combo.currentTextChanged.connect(self._on_template_changed)
         form.addRow("Template:", self.template_combo)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -292,6 +252,19 @@ class _AddSchemaItemDialog(QDialog):
             self.item_data["template"] = template
         self.accept()
 
+    def _on_template_changed(self, name: str):
+        if name == "None":
+            self.labels_edit.setEnabled(True)
+            return
+        try:
+            template = create_template(name)
+            labels = template.labels
+            self.labels_edit.setText(", ".join(labels))
+            self.labels_edit.setEnabled(False)
+        except Exception:
+            # fallback: keep editable if template fails
+            self.labels_edit.setEnabled(True)
+
 
 # ---------------------------------------------------------------------------
 # Schema editor dialog
@@ -300,20 +273,24 @@ class _AddSchemaItemDialog(QDialog):
 class SchemaEditorDialog(QDialog):
     """Settings window (⚙) to define, order, and save schema presets."""
 
-    def __init__(self, settings_path: Path | None = None, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.settings_path = settings_path or _DEFAULT_SETTINGS_PATH
         self.setWindowTitle("Schema Settings ⚙")
         self.setMinimumSize(520, 480)
 
-        if self.settings_path.exists():
-            self._raw_settings = json.loads(self.settings_path.read_text(encoding="utf-8"))
-        else:
-            self._raw_settings = {"digitisation": _merge_digitisation_settings({})}
-        dig = self._raw_settings.setdefault("digitisation", {})
-        dig = _merge_digitisation_settings(dig)
-        self._raw_settings["digitisation"] = dig
-        self._presets: dict = dig.setdefault("schema_presets", {})
+        # Load layered presets: defaults + user overlay
+        settings = load_settings()
+        defaults = settings.get("digitisation", {})
+
+        from ..settings_loader import load_user_settings
+
+        user = load_user_settings().get("digitisation", {})
+
+        self._default_presets: dict = defaults.get("schema_presets", {})
+        self._user_presets: dict = user.get("schema_presets", {})
+
+        # merged view used by the editor
+        self._presets: dict = {**self._default_presets, **self._user_presets}
 
         layout = QVBoxLayout(self)
 
@@ -372,10 +349,13 @@ class SchemaEditorDialog(QDialog):
         self.preset_combo.blockSignals(True)
         self.preset_combo.clear()
         for name in self._presets:
-            self.preset_combo.addItem(name)
-        default = self._raw_settings.get("digitisation", {}).get("default_schema_preset", "")
+            label = name
+            if name in self._default_presets and name not in self._user_presets:
+                label = f"{name} (default)"
+            self.preset_combo.addItem(label, name)
+        default = load_settings().get("digitisation", {}).get("default_schema_preset", "")
         target = current or default
-        idx = self.preset_combo.findText(target)
+        idx = self.preset_combo.findData(target)
         self.preset_combo.setCurrentIndex(max(idx, 0))
         self.preset_combo.blockSignals(False)
 
@@ -389,7 +369,7 @@ class SchemaEditorDialog(QDialog):
         return f"{category}  [single: {', '.join(labels)}]"
 
     def _load_preset_into_list(self):
-        name = self.preset_combo.currentText()
+        name = self.preset_combo.currentData()
         items = list(self._presets.get(name, []))
         self.item_list.clear()
         for item in items:
@@ -432,29 +412,36 @@ class SchemaEditorDialog(QDialog):
         if not name:
             QMessageBox.warning(self, "Required", "Enter a preset name.")
             return
-        self._presets[name] = self._current_list_items()
+        self._user_presets[name] = self._current_list_items()
+        self._presets = {**self._default_presets, **self._user_presets}
         self._persist()
         self._populate_combo()
         self.preset_combo.setCurrentText(name)
         QMessageBox.information(self, "Saved", f"Preset '{name}' saved.")
 
     def _delete_preset(self):
-        name = self.preset_combo.currentText()
+        name = self.preset_combo.currentData()
         if not name:
             return
         reply = QMessageBox.question(self, "Delete Preset", f"Delete preset '{name}'?",
                                      QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
-            self._presets.pop(name, None)
+            self._user_presets.pop(name, None)
+            self._presets = {**self._default_presets, **self._user_presets}
             self._persist()
             self._populate_combo()
             self._load_preset_into_list()
 
     def _persist(self):
-        self._raw_settings.setdefault("digitisation", {})["schema_presets"] = self._presets
-        self.settings_path.write_text(
-            json.dumps(self._raw_settings, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        # Persist only user presets to user layer
+        from ..settings_loader import load_user_settings, user_settings_path
+
+        user_settings = load_user_settings()
+        user_settings.setdefault("digitisation", {})["schema_presets"] = self._user_presets
+
+        path = user_settings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(user_settings, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def _on_accept(self):
         self.accept()
@@ -470,13 +457,12 @@ class SchemaEditorDialog(QDialog):
 class LaunchDialog(QDialog):
     """Startup dialog: enter participant ID and project, select schema preset."""
 
-    def __init__(self, settings_path: Path | None = None, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.settings_path = settings_path or _DEFAULT_SETTINGS_PATH
         self.setWindowTitle("OPM Digitisation — New Session")
         self.setFixedSize(420, 260)
 
-        dig = _load_dig_settings(self.settings_path)
+        dig = _load_dig_settings()
         self._presets: dict = dig.get("schema_presets", {})
         self._default_preset: str = dig.get("default_schema_preset", "")
 
@@ -552,7 +538,7 @@ class LaunchDialog(QDialog):
         return True
 
     def _open_schema_editor(self):
-        dlg = SchemaEditorDialog(settings_path=self.settings_path, parent=self)
+        dlg = SchemaEditorDialog(parent=self)
         dlg.exec_()
 
 
@@ -561,10 +547,9 @@ class LaunchDialog(QDialog):
 # ---------------------------------------------------------------------------
 
 class DigitisationMainWindow(QMainWindow):
-    def __init__(self, controller: DigitisationController, settings_path: Path | None = None, dev_mode: bool = False):
+    def __init__(self, controller: DigitisationController, dev_mode: bool = False):
         super().__init__()
         self.controller = controller
-        self._settings_path = settings_path or _DEFAULT_SETTINGS_PATH
         self._updating_table = False
         self._camera_initialized = False
         self._zoom_factor = 1.0
@@ -573,10 +558,10 @@ class DigitisationMainWindow(QMainWindow):
         self._selected_row = -1
         self._session_saved = False
 
-        dig = _load_dig_settings(self._settings_path)
+        dig = _load_dig_settings()
         interval = int(dig.get("capture_interval_ms", 100))
         self._category_colors: dict = dig.get("category_colors", {})
-        self._sound_manager = _PointSoundManager(self, self._settings_path, dig.get("point_sounds", {}))
+        self._sound_manager = _PointSoundManager(self, dig.get("point_sounds", {}))
 
         self._auto_capture_timer = QTimer(self)
         self._auto_capture_timer.setInterval(interval)
@@ -1012,8 +997,8 @@ class DigitisationMainWindow(QMainWindow):
         if item is not None:
             if isinstance(item.template, str):
                 try:
-                    item.template = globals()[item.template]()
-                except KeyError:
+                    item.template = create_template(item.template)
+                except Exception:
                     QMessageBox.critical(self, "Template Error", f"Template '{item.template}' not found.")
                     return
 
@@ -1183,7 +1168,7 @@ class DigitisationMainWindow(QMainWindow):
     def on_save_csv(self):
         pid = getattr(self.controller, "participant_id", "") or "digitisation"
         default_name = f"digitisation_sub-{pid}.csv"
-        dig = _load_dig_settings(self._settings_path)
+        dig = _load_dig_settings()
         output_dir = Path(dig.get("output_dir", "output")).resolve()
         project = getattr(self.controller, "project", "") or ""
         if project:

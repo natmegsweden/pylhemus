@@ -1,45 +1,32 @@
 import numpy as np
 
+
 class TemplateBase:
-    def __init__(self, label, unit, chan_pos):
-        self.label = label
+    """Base class for digitisation templates."""
+
+    def __init__(self, labels: list[str], positions: np.ndarray, unit: str = "mm"):
+        self.labels = list(labels)
+        self.positions = np.asarray(positions)
         self.unit = unit
-        self.chan_pos = chan_pos
 
-    def _get_attributes_by_labels(self, labels=None, attribute="chan_pos"):
-        """
-        General method to retrieve values of a specified attribute based on labels.
+        # Fast label -> index lookup
+        self.index = {l: i for i, l in enumerate(self.labels)}
 
-        Parameters:
-            labels (list[str] or str): A list of labels or a single label to retrieve data for.
-            attribute (str): The name of the attribute to retrieve (e.g., 'chan_pos', 'chan_ori').
+    def get_chs_pos(self, labels: list[str] | str | None = None) -> np.ndarray:
+        """Return channel positions for requested labels."""
 
-        Returns:
-            np.array: An array of values for the specified attribute based on the input labels.
-        """
-        # if one label is supplied rather than a list, make sure to put it in a list
+        if labels is None:
+            return self.positions
+
         if isinstance(labels, str):
             labels = [labels]
 
-        if labels is None: # return all labels
-            labels = self.label
+        idx = []
+        for l in labels:
+            if l not in self.index:
+                print(f"Label '{l}' not found in template")
+                continue
+            idx.append(self.index[l])
 
-        # Get the attribute (e.g., self.chan_pos, self.chan_ori)
-        attr_values = getattr(self, attribute, None)
-        if attr_values is None:
-            raise AttributeError(f"Attribute '{attribute}' not found in the template.")
-
-        # Retrieve values based on labels
-        values = []
-        for label in labels:
-            if label in self.label:
-                index = self.label.index(label)
-                values.append(attr_values[index])
-            else:
-                print(f"Label '{label}' not found in the template.")
-
-        return np.array(values)
-    
-    def get_chs_pos(self, labels: list[str]=None):
-        return self._get_attributes_by_labels(labels, 'chan_pos')
+        return self.positions[idx]
     
