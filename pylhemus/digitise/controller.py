@@ -102,7 +102,9 @@ class DigitisationController:
 
         # Convert template string to EEGcapTemplate object
         template_obj = None
-        if template:
+        # "Custom" templates are handled in the GUI by generating labels
+        # and should not be instantiated as an EEGcapTemplate.
+        if template and template != "Custom":
             try:
                 template_obj = EEGcapTemplate(template)
             except ValueError as e:

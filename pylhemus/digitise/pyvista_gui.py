@@ -30,6 +30,7 @@ from PyQt5.QtWidgets import (
     QFormLayout,
     QToolButton,
     QSizePolicy,
+    QSpinBox,
 )
 from PyQt5.QtCore import QTimer, Qt, QUrl
 from PyQt5.QtGui import QFont, QPalette, QColor
@@ -202,7 +203,7 @@ class _AddSchemaItemDialog(QDialog):
     def __init__(self, parent=None, existing_item=None):
         super().__init__(parent)
         self.setWindowTitle("Add/Edit Schema Item")
-        self.setFixedSize(400, 220)
+        self.setFixedSize(400, 260)
         self.item_data: dict = existing_item or {}
 
         form = QFormLayout(self)
@@ -222,14 +223,28 @@ class _AddSchemaItemDialog(QDialog):
         self.template_combo = QComboBox()
         self.template_combo.addItem("None")
         self.template_combo.addItems(list_templates())
+        self.template_combo.addItem("Custom")
         self.template_combo.setCurrentText(self.item_data.get("template", "None"))
-        self.template_combo.currentTextChanged.connect(self._on_template_changed)
         form.addRow("Template:", self.template_combo)
+
+        # Custom channel count (only visible when template == Custom)
+        self.custom_channels = QSpinBox()
+        self.custom_channels.setRange(1, 1024)
+        self.custom_channels.setValue(64)
+        self.custom_channels.hide()
+        form.addRow("Channels:", self.custom_channels)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
+
+        # Centralized UI state management
+        self.type_combo.currentTextChanged.connect(self._update_ui_state)
+        self.template_combo.currentTextChanged.connect(self._update_ui_state)
+        self.custom_channels.valueChanged.connect(self._generate_custom_labels)
+
+        self._update_ui_state()
 
     def _on_accept(self):
         category = self.category_edit.text().strip()
@@ -252,18 +267,45 @@ class _AddSchemaItemDialog(QDialog):
             self.item_data["template"] = template
         self.accept()
 
-    def _on_template_changed(self, name: str):
-        if name == "None":
+    def _update_ui_state(self):
+        dig_type = self.type_combo.currentText()
+        template = self.template_combo.currentText()
+
+        if dig_type == "continuous":
+            self.template_combo.setEnabled(False)
+            self.custom_channels.hide()
             self.labels_edit.setEnabled(True)
             return
-        try:
-            template = create_template(name)
-            labels = template.labels
-            self.labels_edit.setText(", ".join(labels))
-            self.labels_edit.setEnabled(False)
-        except Exception:
-            # fallback: keep editable if template fails
+
+        self.template_combo.setEnabled(True)
+
+        if template == "None":
+            self.custom_channels.hide()
             self.labels_edit.setEnabled(True)
+
+        elif template == "Custom":
+            self.custom_channels.show()
+            self._generate_custom_labels()
+
+        else:
+            self.custom_channels.hide()
+            try:
+                template_obj = create_template(template)
+                labels = template_obj.labels
+                self.labels_edit.setText(", ".join(labels))
+                self.labels_edit.setEnabled(False)
+            except Exception:
+                self.labels_edit.setEnabled(True)
+
+    def _generate_custom_labels(self):
+        if self.template_combo.currentText() != "Custom":
+            return
+        n = self.custom_channels.value()
+        labels = [f"ch{i}" for i in range(1, n + 1)]
+        self.labels_edit.setText(", ".join(labels))
+        self.labels_edit.setEnabled(False)
+
+    # valueChanged handled by centralized logic
 
 
 # ---------------------------------------------------------------------------
@@ -412,7 +454,19 @@ class SchemaEditorDialog(QDialog):
         if not name:
             QMessageBox.warning(self, "Required", "Enter a preset name.")
             return
-        self._user_presets[name] = self._current_list_items()
+        items = self._current_list_items()
+
+        # Validate continuous items are last
+        for i, item in enumerate(items[:-1]):
+            if item.get("dig_type") == "continuous":
+                QMessageBox.warning(
+                    self,
+                    "Invalid Schema",
+                    "Continuous schema items must be last in the list."
+                )
+                return
+
+        self._user_presets[name] = items
         self._presets = {**self._default_presets, **self._user_presets}
         self._persist()
         self._populate_combo()
@@ -540,6 +594,24 @@ class LaunchDialog(QDialog):
     def _open_schema_editor(self):
         dlg = SchemaEditorDialog(parent=self)
         dlg.exec_()
+
+        # Reload presets after editor closes (layered settings may have changed)
+        dig = _load_dig_settings()
+        self._presets = dig.get("schema_presets", {})
+
+        current = self.schema_combo.currentText()
+
+        self.schema_combo.blockSignals(True)
+        self.schema_combo.clear()
+        for name in self._presets:
+            self.schema_combo.addItem(name)
+
+        # Reapply previous or default preset
+        target = current if current in self._presets else self._default_preset
+        idx = self.schema_combo.findText(target)
+        if idx >= 0:
+            self.schema_combo.setCurrentIndex(idx)
+        self.schema_combo.blockSignals(False)
 
 
 # ---------------------------------------------------------------------------

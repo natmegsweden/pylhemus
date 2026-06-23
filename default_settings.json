@@ -41,38 +41,6 @@
           "category": "head",
           "dig_type": "continuous"
         }
-      ],
-      "fiducials_only": [
-        {
-          "category": "fiducials",
-          "labels": [
-            "lpa",
-            "nasion",
-            "rpa"
-          ],
-          "dig_type": "single"
-        }
-      ],
-      "fiducials_and_HPI": [
-        {
-          "category": "fiducials",
-          "labels": [
-            "lpa",
-            "nasion",
-            "rpa"
-          ],
-          "dig_type": "single"
-        },
-        {
-          "category": "HPI_coils",
-          "labels": [
-            "hpi1",
-            "hpi2",
-            "hpi3",
-            "hpi4"
-          ],
-          "dig_type": "single"
-        }
       ]
     },
     "_comment": "Admin-only settings. Change these only if you know what you are doing."
