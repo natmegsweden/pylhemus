@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -1716,7 +1717,8 @@ class DigitisationMainWindow(QMainWindow):
 
     def on_save_csv(self):
         pid = getattr(self.controller, "participant_id", "") or "digitisation"
-        default_name = f"digitisation_sub-{pid}.csv"
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        default_name = f"digitisation_sub-{pid}_{timestamp}.csv"
         dig = _load_dig_settings()
         output_dir = Path(dig.get("output_dir", "output")).resolve()
         project = getattr(self.controller, "project", "") or ""
