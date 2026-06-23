@@ -20,7 +20,10 @@ PROJECT_SETTINGS = Path.cwd() / "pylhemus.settings.json"
 
 def _load_json_if_exists(path: Path) -> dict:
     if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
     return {}
 
 
@@ -45,6 +48,28 @@ def _migrate_legacy_user_settings():
     if LEGACY_USER_SETTINGS.exists() and not USER_SETTINGS.exists():
         USER_DIR.mkdir(parents=True, exist_ok=True)
         LEGACY_USER_SETTINGS.rename(USER_SETTINGS)
+
+
+def _strip_comments(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return {k: _strip_comments(v) for k, v in obj.items() if k != "_comment"}
+    if isinstance(obj, list):
+        return [_strip_comments(v) for v in obj]
+    return obj
+
+
+def ensure_user_settings_file() -> Path:
+    """Seed the user settings file from bundled defaults when missing."""
+
+    _migrate_legacy_user_settings()
+    if not USER_SETTINGS.exists():
+        USER_DIR.mkdir(parents=True, exist_ok=True)
+        defaults = _load_json_if_exists(PACKAGE_DEFAULTS)
+        clean = _strip_comments(defaults)
+        USER_SETTINGS.write_text(
+            json.dumps(clean, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+    return USER_SETTINGS
 
 
 def load_settings() -> dict:

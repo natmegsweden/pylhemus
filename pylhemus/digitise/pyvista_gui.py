@@ -15,10 +15,12 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QPushButton,
     QLabel,
+    QColorDialog,
     QFileDialog,
     QTableWidget,
     QTableWidgetItem,
     QMessageBox,
+    QGroupBox,
     QHeaderView,
     QSlider,
     QDialog,
@@ -28,9 +30,11 @@ from PyQt5.QtWidgets import (
     QListWidgetItem,
     QLineEdit,
     QFormLayout,
-    QToolButton,
+    QPlainTextEdit,
+    QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QToolButton,
 )
 from PyQt5.QtCore import QTimer, Qt, QUrl
 from PyQt5.QtGui import QFont, QPalette, QColor
@@ -203,8 +207,12 @@ class _AddSchemaItemDialog(QDialog):
     def __init__(self, parent=None, existing_item=None):
         super().__init__(parent)
         self.setWindowTitle("Add/Edit Schema Item")
-        self.setFixedSize(400, 260)
+        self.setFixedSize(430, 300)
         self.item_data: dict = existing_item or {}
+        self._custom_labels_dirty = (
+            self.item_data.get("template") == "Custom"
+            and bool(self.item_data.get("labels", []))
+        )
 
         form = QFormLayout(self)
         self.category_edit = QLineEdit(self.item_data.get("category", ""))
@@ -217,8 +225,17 @@ class _AddSchemaItemDialog(QDialog):
         form.addRow("Type:", self.type_combo)
 
         self.labels_edit = QLineEdit(", ".join(self.item_data.get("labels", [])) if self.item_data.get("dig_type") == "single" else str(self.item_data.get("n_points", "")))
-        self.labels_edit.setPlaceholderText("label1, label2  —or—  number of points (continuous)")
-        form.addRow("Labels / n_points:", self.labels_edit)
+        self.labels_edit.setPlaceholderText("label1, label2  - or - number of points (continuous)")
+        labels_row = QHBoxLayout()
+        labels_row.addWidget(self.labels_edit)
+        self.edit_labels_btn = QToolButton()
+        self.edit_labels_btn.setText("✎")
+        self.edit_labels_btn.setToolTip("Edit labels in a larger textbox")
+        self.edit_labels_btn.clicked.connect(self._open_labels_editor)
+        labels_row.addWidget(self.edit_labels_btn)
+        labels_widget = QWidget()
+        labels_widget.setLayout(labels_row)
+        form.addRow("Labels / n_points:", labels_widget)
 
         self.template_combo = QComboBox()
         self.template_combo.addItem("None")
@@ -230,7 +247,7 @@ class _AddSchemaItemDialog(QDialog):
         # Custom channel count (only visible when template == Custom)
         self.custom_channels = QSpinBox()
         self.custom_channels.setRange(1, 1024)
-        self.custom_channels.setValue(64)
+        self.custom_channels.setValue(max(len(self.item_data.get("labels", [])), 1) if self.item_data.get("template") == "Custom" else 64)
         self.custom_channels.hide()
         form.addRow("Channels:", self.custom_channels)
 
@@ -267,14 +284,63 @@ class _AddSchemaItemDialog(QDialog):
             self.item_data["template"] = template
         self.accept()
 
+    def _current_labels(self) -> list[str]:
+        return [lbl.strip() for lbl in self.labels_edit.text().split(",") if lbl.strip()]
+
+    def _set_custom_labels(self, labels: list[str]):
+        clean = [label.strip() for label in labels if label.strip()]
+        if not clean:
+            return
+        self.labels_edit.setText(", ".join(clean))
+        self.custom_channels.blockSignals(True)
+        self.custom_channels.setValue(len(clean))
+        self.custom_channels.blockSignals(False)
+
+    def _open_labels_editor(self):
+        if self.template_combo.currentText() != "Custom" or self.type_combo.currentText() != "single":
+            return
+
+        labels = self._current_labels()
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Edit Custom Labels")
+        dlg.resize(520, 420)
+
+        layout = QVBoxLayout(dlg)
+        layout.addWidget(QLabel("Enter one label per line:"))
+
+        editor = QPlainTextEdit()
+        editor.setPlainText("\n".join(labels))
+        layout.addWidget(editor, stretch=1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        if dlg.exec_() != QDialog.Accepted:
+            return
+
+        edited_labels = [
+            line.strip() for line in editor.toPlainText().splitlines() if line.strip()
+        ]
+        if not edited_labels:
+            QMessageBox.warning(self, "Required", "At least one label is required.")
+            return
+
+        self._custom_labels_dirty = True
+        self._set_custom_labels(edited_labels)
+
     def _update_ui_state(self):
         dig_type = self.type_combo.currentText()
         template = self.template_combo.currentText()
+        previous_template = getattr(self, "_previous_template", template)
 
         if dig_type == "continuous":
             self.template_combo.setEnabled(False)
             self.custom_channels.hide()
             self.labels_edit.setEnabled(True)
+            self.edit_labels_btn.hide()
+            self._previous_template = template
             return
 
         self.template_combo.setEnabled(True)
@@ -282,13 +348,23 @@ class _AddSchemaItemDialog(QDialog):
         if template == "None":
             self.custom_channels.hide()
             self.labels_edit.setEnabled(True)
+            self.edit_labels_btn.hide()
 
         elif template == "Custom":
             self.custom_channels.show()
-            self._generate_custom_labels()
+            self.edit_labels_btn.show()
+            self.labels_edit.setEnabled(False)
+            preserve_custom_labels = (
+                previous_template == "Custom"
+                and self._custom_labels_dirty
+                and bool(self._current_labels())
+            )
+            if not preserve_custom_labels:
+                self._generate_custom_labels()
 
         else:
             self.custom_channels.hide()
+            self.edit_labels_btn.hide()
             try:
                 template_obj = create_template(template)
                 labels = template_obj.labels
@@ -297,6 +373,8 @@ class _AddSchemaItemDialog(QDialog):
             except Exception:
                 self.labels_edit.setEnabled(True)
 
+        self._previous_template = template
+
     def _generate_custom_labels(self):
         if self.template_combo.currentText() != "Custom":
             return
@@ -304,6 +382,7 @@ class _AddSchemaItemDialog(QDialog):
         labels = [f"ch{i}" for i in range(1, n + 1)]
         self.labels_edit.setText(", ".join(labels))
         self.labels_edit.setEnabled(False)
+        self._custom_labels_dirty = False
 
     # valueChanged handled by centralized logic
 
@@ -411,7 +490,7 @@ class SchemaEditorDialog(QDialog):
         return f"{category}  [single: {', '.join(labels)}]"
 
     def _load_preset_into_list(self):
-        name = self.preset_combo.currentData()
+        name = self.preset_combo.currentData() or ""
         items = list(self._presets.get(name, []))
         self.item_list.clear()
         for item in items:
@@ -504,6 +583,376 @@ class SchemaEditorDialog(QDialog):
         return self._current_list_items()
 
 
+class SettingsDialog(QDialog):
+    """Full user-settings editor."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.setMinimumSize(560, 600)
+
+        from ..settings_loader import (
+            ensure_user_settings_file,
+            load_user_settings,
+            user_settings_path,
+        )
+
+        ensure_user_settings_file()
+
+        merged = load_settings()
+        user = load_user_settings()
+
+        self._user_settings_path = user_settings_path()
+        self._merged = merged
+        self._user = user
+
+        defaults = merged.get("digitisation", {})
+        user_dig = user.get("digitisation", {})
+
+        self._default_presets: dict = defaults.get("schema_presets", {})
+        self._user_presets: dict = user_dig.get("schema_presets", {})
+        self._presets: dict = {**self._default_presets, **self._user_presets}
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        inner = QWidget()
+        scroll.setWidget(inner)
+        root = QVBoxLayout(inner)
+        root.setSpacing(12)
+
+        root.addWidget(self._build_general_section(merged, user))
+        root.addWidget(self._build_schema_section())
+        root.addWidget(self._build_advanced_section(merged, user))
+        root.addStretch(1)
+
+        outer = QVBoxLayout(self)
+        outer.addWidget(scroll)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self._on_accept)
+        buttons.rejected.connect(self.reject)
+        outer.addWidget(buttons)
+
+        self.preset_combo.currentTextChanged.connect(self._load_preset_into_list)
+        self.add_item_btn.clicked.connect(self._add_item)
+        self.edit_item_btn.clicked.connect(self._edit_item)
+        self.remove_item_btn.clicked.connect(self._remove_selected)
+        self.save_preset_btn.clicked.connect(self._save_preset)
+        self.del_preset_btn.clicked.connect(self._delete_preset)
+
+        self._populate_combo()
+        self._load_preset_into_list()
+        self._sync_default_preset_combo()
+
+    def _build_general_section(self, merged: dict, user: dict) -> QGroupBox:
+        del user
+        box = QGroupBox("General")
+        form = QFormLayout(box)
+
+        self.serial_port_edit = QLineEdit(merged.get("serial_port", "COM1"))
+        form.addRow("Serial port:", self.serial_port_edit)
+
+        self.serial_baud_spin = QSpinBox()
+        self.serial_baud_spin.setRange(300, 115200)
+        self.serial_baud_spin.setValue(int(merged.get("serial_baud", 9600)))
+        form.addRow("Baud rate:", self.serial_baud_spin)
+
+        self.output_dir_edit = QLineEdit(
+            merged.get("digitisation", {}).get("output_dir", "output")
+        )
+        form.addRow("Output directory:", self.output_dir_edit)
+
+        self.default_preset_combo = QComboBox()
+        presets = merged.get("digitisation", {}).get("schema_presets", {})
+        for name in presets:
+            self.default_preset_combo.addItem(name)
+        current_default = merged.get("digitisation", {}).get(
+            "default_schema_preset", ""
+        )
+        idx = self.default_preset_combo.findText(current_default)
+        if idx >= 0:
+            self.default_preset_combo.setCurrentIndex(idx)
+        form.addRow("Default preset:", self.default_preset_combo)
+
+        return box
+
+    def _build_schema_section(self) -> QGroupBox:
+        box = QGroupBox("Schema Presets")
+        layout = QVBoxLayout(box)
+
+        preset_row = QHBoxLayout()
+        preset_row.addWidget(QLabel("Preset:"))
+        self.preset_combo = QComboBox()
+        preset_row.addWidget(self.preset_combo, stretch=1)
+        self.del_preset_btn = QPushButton("Delete Preset")
+        preset_row.addWidget(self.del_preset_btn)
+        layout.addLayout(preset_row)
+
+        layout.addWidget(QLabel("Items - drag to reorder:"))
+        self.item_list = QListWidget()
+        self.item_list.setDragDropMode(QListWidget.InternalMove)
+        self.item_list.setMinimumHeight(180)
+        layout.addWidget(self.item_list, stretch=1)
+
+        item_btns = QHBoxLayout()
+        self.add_item_btn = QPushButton("+ Add Item")
+        self.edit_item_btn = QPushButton("Edit Item")
+        self.remove_item_btn = QPushButton("- Remove Selected")
+        item_btns.addWidget(self.add_item_btn)
+        item_btns.addWidget(self.edit_item_btn)
+        item_btns.addWidget(self.remove_item_btn)
+        item_btns.addStretch(1)
+        layout.addLayout(item_btns)
+
+        save_row = QHBoxLayout()
+        save_row.addWidget(QLabel("Save current list as:"))
+        self.save_name_edit = QLineEdit()
+        save_row.addWidget(self.save_name_edit, stretch=1)
+        self.save_preset_btn = QPushButton("Save Preset")
+        save_row.addWidget(self.save_preset_btn)
+        layout.addLayout(save_row)
+
+        return box
+
+    def _build_advanced_section(self, merged: dict, user: dict) -> QWidget:
+        del user
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        toggle_btn = QPushButton("Advanced  \u25b6")
+        toggle_btn.setCheckable(True)
+        toggle_btn.setChecked(False)
+        toggle_btn.setFlat(True)
+        toggle_btn.setStyleSheet("text-align: left;")
+        layout.addWidget(toggle_btn)
+
+        inner = QGroupBox()
+        inner.setVisible(False)
+        form = QFormLayout(inner)
+        layout.addWidget(inner)
+
+        dig = merged.get("digitisation", {})
+
+        self.capture_interval_spin = QSpinBox()
+        self.capture_interval_spin.setRange(10, 5000)
+        self.capture_interval_spin.setSuffix(" ms")
+        self.capture_interval_spin.setValue(int(dig.get("capture_interval_ms", 100)))
+        form.addRow("Capture interval:", self.capture_interval_spin)
+
+        sounds = dig.get("point_sounds", {})
+        self._sound_edits: dict[str, QLineEdit] = {}
+        for key in ("single", "continuous", "faulty"):
+            row = QHBoxLayout()
+            edit = QLineEdit(sounds.get(key, ""))
+            browse = QPushButton("Browse...")
+            browse.setFixedWidth(80)
+            browse.clicked.connect(lambda _checked, e=edit: self._browse_sound(e))
+            row.addWidget(edit)
+            row.addWidget(browse)
+            self._sound_edits[key] = edit
+            widget = QWidget()
+            widget.setLayout(row)
+            form.addRow(f"Sound ({key}):", widget)
+
+        colors = dig.get("category_colors", {})
+        self._color_edits: dict[str, str] = dict(colors)
+        self._color_btns: dict[str, QPushButton] = {}
+        for cat, color in colors.items():
+            btn = QPushButton()
+            btn.setFixedWidth(100)
+            self._apply_color_to_btn(btn, color)
+            btn.clicked.connect(lambda _checked, c=cat: self._pick_color(c))
+            self._color_btns[cat] = btn
+            form.addRow(f"Colour ({cat}):", btn)
+
+        def _toggle_advanced(checked: bool):
+            toggle_btn.setText("Advanced  \u25bc" if checked else "Advanced  \u25b6")
+            inner.setVisible(checked)
+
+        toggle_btn.toggled.connect(_toggle_advanced)
+
+        return container
+
+    def _browse_sound(self, edit: QLineEdit):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select sound file", "", "Audio (*.wav *.ogg *.mp3)"
+        )
+        if path:
+            edit.setText(path)
+
+    def _apply_color_to_btn(self, btn: QPushButton, color: str):
+        btn.setText(color)
+        text_color = "#000000" if QColor(color).lightness() > 128 else "#ffffff"
+        btn.setStyleSheet(f"background-color: {color}; color: {text_color};")
+
+    def _pick_color(self, category: str):
+        initial = QColor(self._color_edits.get(category, "#888888"))
+        chosen = QColorDialog.getColor(initial, self, f"Pick colour for {category}")
+        if chosen.isValid():
+            hex_color = chosen.name()
+            self._color_edits[category] = hex_color
+            self._apply_color_to_btn(self._color_btns[category], hex_color)
+
+    def _sync_default_preset_combo(self):
+        current = self.default_preset_combo.currentText()
+        fallback = self._merged.get("digitisation", {}).get("default_schema_preset", "")
+        self.default_preset_combo.blockSignals(True)
+        self.default_preset_combo.clear()
+        for name in self._presets:
+            self.default_preset_combo.addItem(name)
+        target = current if current in self._presets else fallback
+        idx = self.default_preset_combo.findText(target)
+        if idx >= 0:
+            self.default_preset_combo.setCurrentIndex(idx)
+        self.default_preset_combo.blockSignals(False)
+
+    def _populate_combo(self):
+        current = self.preset_combo.currentText()
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.clear()
+        for name in self._presets:
+            label = name
+            if name in self._default_presets and name not in self._user_presets:
+                label = f"{name} (default)"
+            self.preset_combo.addItem(label, name)
+        default = load_settings().get("digitisation", {}).get("default_schema_preset", "")
+        target = current or default
+        idx = self.preset_combo.findData(target)
+        self.preset_combo.setCurrentIndex(max(idx, 0))
+        self.preset_combo.blockSignals(False)
+        self._sync_default_preset_combo()
+
+    def _item_text(self, item: dict) -> str:
+        category = item.get("category", "?")
+        dig_type = item.get("dig_type", "single")
+        if dig_type == "continuous":
+            n = item.get("n_points", "\u221e")
+            return f"{category}  [continuous, n\u2265{n}]"
+        labels = item.get("labels", [])
+        return f"{category}  [single: {', '.join(labels)}]"
+
+    def _load_preset_into_list(self):
+        name = self.preset_combo.currentData()
+        items = list(self._presets.get(name, []))
+        self.item_list.clear()
+        for item in items:
+            list_item = QListWidgetItem(self._item_text(item))
+            list_item.setData(Qt.UserRole, dict(item))
+            self.item_list.addItem(list_item)
+        self.save_name_edit.setText(name)
+
+    def _add_item(self):
+        dlg = _AddSchemaItemDialog(self)
+        if dlg.exec_() == QDialog.Accepted:
+            list_item = QListWidgetItem(self._item_text(dlg.item_data))
+            list_item.setData(Qt.UserRole, dlg.item_data)
+            self.item_list.addItem(list_item)
+
+    def _edit_item(self):
+        current_row = self.item_list.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "Select Item", "Please select an item to edit.")
+            return
+
+        list_item = self.item_list.currentItem()
+        existing_data = list_item.data(Qt.UserRole)
+        dlg = _AddSchemaItemDialog(self, existing_item=existing_data)
+        if dlg.exec_() == QDialog.Accepted:
+            updated_item = dlg.item_data
+            list_item.setText(self._item_text(updated_item))
+            list_item.setData(Qt.UserRole, updated_item)
+
+    def _remove_selected(self):
+        row = self.item_list.currentRow()
+        if row >= 0:
+            self.item_list.takeItem(row)
+
+    def _current_list_items(self) -> list[dict]:
+        return [
+            self.item_list.item(i).data(Qt.UserRole)
+            for i in range(self.item_list.count())
+        ]
+
+    def _save_preset(self):
+        name = self.save_name_edit.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Required", "Enter a preset name.")
+            return
+        items = self._current_list_items()
+
+        for i, item in enumerate(items[:-1]):
+            if item.get("dig_type") == "continuous":
+                QMessageBox.warning(
+                    self,
+                    "Invalid Schema",
+                    "Continuous schema items must be last in the list.",
+                )
+                return
+
+        self._user_presets[name] = items
+        self._presets = {**self._default_presets, **self._user_presets}
+        self._populate_combo()
+        idx = self.preset_combo.findData(name)
+        if idx >= 0:
+            self.preset_combo.setCurrentIndex(idx)
+        QMessageBox.information(self, "Saved", f"Preset '{name}' saved.")
+
+    def _delete_preset(self):
+        name = self.preset_combo.currentData()
+        if not name:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Delete Preset",
+            f"Delete preset '{name}'?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            self._user_presets.pop(name, None)
+            self._presets = {**self._default_presets, **self._user_presets}
+            self._populate_combo()
+            self._load_preset_into_list()
+
+    def _persist(self):
+        from ..settings_loader import load_user_settings, user_settings_path
+
+        user_settings = load_user_settings()
+        user_settings.setdefault("digitisation", {})["schema_presets"] = self._user_presets
+
+        path = user_settings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(user_settings, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
+    def _on_accept(self):
+        from ..settings_loader import load_user_settings
+
+        user = load_user_settings()
+
+        user["serial_port"] = self.serial_port_edit.text().strip()
+        user["serial_baud"] = self.serial_baud_spin.value()
+        user.setdefault("digitisation", {})
+        user["digitisation"]["output_dir"] = self.output_dir_edit.text().strip()
+        user["digitisation"]["default_schema_preset"] = (
+            self.default_preset_combo.currentText()
+        )
+        user["digitisation"]["schema_presets"] = self._user_presets
+        user["digitisation"]["capture_interval_ms"] = self.capture_interval_spin.value()
+        user["digitisation"]["point_sounds"] = {
+            key: edit.text() for key, edit in self._sound_edits.items()
+        }
+        user["digitisation"]["category_colors"] = dict(self._color_edits)
+
+        self._user_settings_path.parent.mkdir(parents=True, exist_ok=True)
+        self._user_settings_path.write_text(
+            json.dumps(user, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
+        self.accept()
+
+
 # ---------------------------------------------------------------------------
 # Launch dialog: participant ID + schema selection
 # ---------------------------------------------------------------------------
@@ -514,7 +963,7 @@ class LaunchDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("OPM Digitisation — New Session")
-        self.setFixedSize(420, 260)
+        self.setMinimumSize(420, 300)
 
         dig = _load_dig_settings()
         self._presets: dict = dig.get("schema_presets", {})
@@ -539,20 +988,23 @@ class LaunchDialog(QDialog):
         if idx >= 0:
             self.schema_combo.setCurrentIndex(idx)
         schema_row.addWidget(self.schema_combo, stretch=1)
-
-        manage_btn = QToolButton()
-        manage_btn.setText("\u2699")
-        manage_btn.setToolTip("Manage schema presets")
-        manage_btn.clicked.connect(self._open_schema_editor)
-        schema_row.addWidget(manage_btn)
         form.addRow("Schema:", schema_row)
 
         layout.addLayout(form)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        btn_row = QHBoxLayout()
+        settings_btn = QPushButton("Settings...")
+        settings_btn.clicked.connect(self._open_settings)
+        btn_row.addWidget(settings_btn)
+        btn_row.addStretch(1)
+        ok_btn = QPushButton("OK")
+        ok_btn.setDefault(True)
+        cancel_btn = QPushButton("Cancel")
+        ok_btn.clicked.connect(self._on_accept)
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(ok_btn)
+        layout.addLayout(btn_row)
         self.id_edit.returnPressed.connect(self._on_accept)
         self.project_edit.returnPressed.connect(self._on_accept)
 
@@ -591,22 +1043,21 @@ class LaunchDialog(QDialog):
                     return False
         return True
 
-    def _open_schema_editor(self):
-        dlg = SchemaEditorDialog(parent=self)
-        dlg.exec_()
+    def _open_settings(self):
+        dlg = SettingsDialog(parent=self)
+        if dlg.exec_() == QDialog.Accepted:
+            self._reload_settings()
 
-        # Reload presets after editor closes (layered settings may have changed)
+    def _reload_settings(self):
         dig = _load_dig_settings()
         self._presets = dig.get("schema_presets", {})
+        self._default_preset = dig.get("default_schema_preset", "")
 
         current = self.schema_combo.currentText()
-
         self.schema_combo.blockSignals(True)
         self.schema_combo.clear()
         for name in self._presets:
             self.schema_combo.addItem(name)
-
-        # Reapply previous or default preset
         target = current if current in self._presets else self._default_preset
         idx = self.schema_combo.findText(target)
         if idx >= 0:

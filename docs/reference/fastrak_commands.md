@@ -1,18 +1,19 @@
-# FASTRAK command quick reference for pylhemus
+# FASTRAK command quick reference
 
 This document is a cleaned implementation-facing command summary derived from
-FASTRAK_User_Manual_OPM00PI002-G.pdf and current pylhemus behavior.
+FASTRAK_User_Manual_OPM00PI002-G.pdf and current `pylhemus` behavior.
 
-Use this as an operator and development reference for pylhemus talk commands.
-For normative command definitions, rely on the vendor PDF.
+Use this as an operator and development reference for `pylhemus talk`
+commands. For normative command definitions, rely on the vendor PDF.
 
 ## Serial baseline
 
 - Interface: ASCII commands over serial.
 - Typical line ending for commands: carriage return.
-- Default pylhemus settings: 9600 baud, 8 data bits, no parity, 1 stop bit, no flow control.
+- Default `pylhemus` settings: 9600 baud, 8 data bits, no parity, 1 stop bit,
+  no flow control.
 
-## pylhemus talk quick index
+## `pylhemus talk` quick index
 
 - `pylhemus talk --port <PORT> status`: reads `S`, `X`, `y`, `v`, and `x`.
 - `pylhemus talk --port <PORT> receivers`: reads `l1`.
@@ -22,7 +23,7 @@ For normative command definitions, rely on the vendor PDF.
 - `pylhemus talk --port <PORT> prepare`: sends `W`, then `u`, then checks `l1`.
 - `pylhemus talk --port <PORT> send-raw <cmd>`: sends one raw command as-is (supports `^S` style control notation).
 
-## pylhemus talk command mapping
+## `pylhemus talk` command mapping
 
 - `pylhemus talk --port <PORT> status`
   - Sends: `S`, `X`, `y`, filter queries `v` and `x`.

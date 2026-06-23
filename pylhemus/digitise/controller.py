@@ -341,34 +341,13 @@ class DigitisationController:
 
         df.to_csv(output_path, index=False)
 
-    def save_session(self, output_path: Path):
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "participant_id": self.participant_id,
-            "project": self.project,
-            "current_scheme_idx": self.current_scheme_idx,
-            "current_label_idx": self.current_label_idx,
-            "scheme": [
-                {
-                    "category": item.category,
-                    "labels": item.labels,
-                    "dig_type": item.dig_type,
-                    "n_points": item.n_points,
-                    "unbounded": item.unbounded,
-                }
-                for item in self.scheme
-            ],
-            "digitised_points": self.digitised_points.to_dict(orient="records"),
-        }
-        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-
     def save_session_with_transform(self, output_path: Path):
         """Save session including transformed points for full restore."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Get points with transforms if available
         points_data = self.digitised_points.to_dict(orient="records")
-        
+
         # Add transformed coordinates if transform is valid
         if self.has_valid_neuromag_transform():
             for i, point in enumerate(points_data):
@@ -379,7 +358,7 @@ class DigitisationController:
                     point["x_t"] = transformed[0]
                     point["y_t"] = transformed[1]
                     point["z_t"] = transformed[2]
-        
+
         payload = {
             "participant_id": self.participant_id,
             "project": self.project,
