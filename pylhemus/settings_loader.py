@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Any
 
 
 PACKAGE_DEFAULTS = Path(__file__).with_name("default_settings.json")
-USER_DIR = Path.home() / ".pylhemus"
+if sys.platform == "win32":
+    USER_DIR = Path(os.environ.get("APPDATA", Path.home())) / "pylhemus"
+else:
+    USER_DIR = Path.home() / ".pylhemus"
+
 USER_SETTINGS = USER_DIR / "settings.json"
 LEGACY_USER_SETTINGS = USER_DIR / "default_settings.json"
 PROJECT_SETTINGS = Path.cwd() / "pylhemus.settings.json"
@@ -57,7 +63,7 @@ def load_settings() -> dict:
 
 
 def user_settings_path() -> Path:
-    """Return path to the user settings file (~/.pylhemus/settings.json)."""
+    """Return path to the user settings file."""
     return USER_SETTINGS
 
 

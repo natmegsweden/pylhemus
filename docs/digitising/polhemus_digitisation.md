@@ -21,7 +21,7 @@ The supported digitisation workflow is the packaged CLI command:
 pylhemus gui
 ```
 
-`pylhemus gui` opens a startup dialog where you enter the participant ID and choose a schema preset. The default presets are stored in `default_settings.json` under `digitisation.schema_presets`.
+`pylhemus gui` opens a startup dialog where you enter the participant ID and choose a schema preset. The built-in presets come from the bundled package defaults, and you can inspect or adjust them with the schema editor in the startup dialog.
 
 The GUI then:
 
@@ -30,7 +30,7 @@ The GUI then:
 - loads the selected schema into the session controller
 - writes the captured points to `output/digitisation_sub-<participant_id>.csv` when the window closes
 
-The default serial port is also configured in `default_settings.json`:
+The default serial port can be overridden in the user settings file: `%APPDATA%\pylhemus\settings.json` on Windows, or `~/.pylhemus/settings.json` on macOS/Linux.
 
 ```json
 {
@@ -38,13 +38,10 @@ The default serial port is also configured in `default_settings.json`:
 }
 ```
 
-If needed, edit the schema presets in `default_settings.json` before launching the GUI, or use the schema editor from the startup dialog.
-
-If the current working directory does not already contain `default_settings.json`, pylhemus creates a writable settings file automatically in the user config directory.
+If needed, edit the schema presets in the user settings file, or use the schema editor from the startup dialog. For project-specific overrides in the current working directory, use `pylhemus.settings.json`.
 
 To query the FASTRAK configuration without opening the GUI, use:
 
 ```python
 pylhemus read-settings --port COM1 --out plh_settings.json
 ```
-
