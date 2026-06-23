@@ -46,6 +46,10 @@ from ..settings_loader import load_settings
 from ..template.registry import list_templates, create_template
 
 
+# Minimum button height for comfortable touch-screen use.
+DIALOG_BTN_HEIGHT = 44
+
+
 def setup_dark_theme(app: QApplication):
     """Apply consistent dark theme across platforms (macOS, Windows, Linux)."""
     # Set application style for consistency
@@ -633,6 +637,9 @@ class SettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)
 
+        for btn in self.findChildren(QPushButton):
+            btn.setMinimumHeight(DIALOG_BTN_HEIGHT)
+
         self.preset_combo.currentTextChanged.connect(self._load_preset_into_list)
         self.add_item_btn.clicked.connect(self._add_item)
         self.edit_item_btn.clicked.connect(self._edit_item)
@@ -657,10 +664,18 @@ class SettingsDialog(QDialog):
         self.serial_baud_spin.setValue(int(merged.get("serial_baud", 9600)))
         form.addRow("Baud rate:", self.serial_baud_spin)
 
+        output_row = QHBoxLayout()
         self.output_dir_edit = QLineEdit(
             merged.get("digitisation", {}).get("output_dir", "output")
         )
-        form.addRow("Output directory:", self.output_dir_edit)
+        output_browse_btn = QPushButton("Browse...")
+        output_browse_btn.setFixedWidth(80)
+        output_browse_btn.clicked.connect(self._browse_output_dir)
+        output_row.addWidget(self.output_dir_edit)
+        output_row.addWidget(output_browse_btn)
+        output_widget = QWidget()
+        output_widget.setLayout(output_row)
+        form.addRow("Output directory:", output_widget)
 
         self.default_preset_combo = QComboBox()
         presets = merged.get("digitisation", {}).get("schema_presets", {})
@@ -780,6 +795,15 @@ class SettingsDialog(QDialog):
         )
         if path:
             edit.setText(path)
+
+    def _browse_output_dir(self):
+        path = QFileDialog.getExistingDirectory(
+            self,
+            "Select output directory",
+            self.output_dir_edit.text().strip() or str(Path.cwd()),
+        )
+        if path:
+            self.output_dir_edit.setText(path)
 
     def _apply_color_to_btn(self, btn: QPushButton, color: str):
         btn.setText(color)
@@ -1002,6 +1026,8 @@ class LaunchDialog(QDialog):
         cancel_btn = QPushButton("Cancel")
         ok_btn.clicked.connect(self._on_accept)
         cancel_btn.clicked.connect(self.reject)
+        for _btn in (settings_btn, cancel_btn, ok_btn):
+            _btn.setMinimumHeight(DIALOG_BTN_HEIGHT)
         btn_row.addWidget(cancel_btn)
         btn_row.addWidget(ok_btn)
         layout.addLayout(btn_row)
