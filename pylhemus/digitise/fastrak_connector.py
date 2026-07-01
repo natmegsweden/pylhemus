@@ -115,8 +115,12 @@ class FastrakConnector:
         """
         self.send_serial_command(b"u")  # send 'u' command to set metric units
 
+    def metal_compensation(self):
+        self.send_serial_command(b"d")  # send 'd' command to set metal compensation off
+
     def prepare_for_digitisation(self):
         self.set_factory_software_defaults()
+        self.metal_compensation()
         self.clear_old_data()
         self.output_metric()
         self.query_n_receivers()

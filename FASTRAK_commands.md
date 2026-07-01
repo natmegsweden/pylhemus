@@ -108,3 +108,6 @@ For normative command definitions, rely on the vendor PDF.
 - Commands marked with `*` in the vendor manual are not persisted to EEPROM.
 - Use `send-raw` for features not wrapped by friendly subcommands.
 - If the device appears stuck in streaming mode, suspend transmission (`^S`) before querying settings.
+- Some FASTRAK units/firmware configurations reject certain write/config commands and return
+  `E*ERROR* ... EC -99 ...` even when query commands (for example `S`, `X`, `y`) still work.
+  In that case, treat the command as unsupported in the current device mode/firmware profile.
