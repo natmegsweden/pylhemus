@@ -93,12 +93,21 @@ pylhemus talk --port COM1 status
 pylhemus talk --port COM1 receivers
 pylhemus talk --port COM1 station --id 1
 pylhemus talk --port COM1 dump-settings --out settings.json
+pylhemus talk --port COM1 apply-settings --from settings.json
 pylhemus talk --port COM1 set-units cm
 pylhemus talk --port COM1 send-raw S
 
 # Run without installing
 python -m pylhemus gui
 ```
+
+## FASTRAK settings backup and restore
+
+- `pylhemus read-settings --port COM1 --out settings.json` reads the current FASTRAK configuration into JSON.
+- `pylhemus talk --port COM1 dump-settings --out settings.json` produces an enriched snapshot with parsed values and restore-ready command fields.
+- `pylhemus talk --port COM1 apply-settings --from settings.json` replays the saved restorable settings to a live device and returns a per-command restore report.
+- Per-station restore commands are only sent for stations that are active on the target device.
+- Settings are not persisted to FASTRAK EEPROM automatically. If persistence is needed after restore, run `pylhemus talk --port COM1 send-raw ^K` manually.
 
 ## Workflow
 

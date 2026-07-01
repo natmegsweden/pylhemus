@@ -18,6 +18,7 @@ For normative command definitions, rely on the vendor PDF.
 - `pylhemus talk --port <PORT> receivers`: reads `l1`.
 - `pylhemus talk --port <PORT> station --id <1-4>`: reads `Hn`, `An`, `Gn`, `In`, `On`, `Vn`, `Qn`, `rn`, `Nn`.
 - `pylhemus talk --port <PORT> dump-settings`: full settings snapshot using the above command families.
+- `pylhemus talk --port <PORT> apply-settings --from <file.json>`: replays restorable settings from a previous dump.
 - `pylhemus talk --port <PORT> set-units cm|in`: sends `u` or `U`.
 - `pylhemus talk --port <PORT> prepare`: sends `W`, then `u`, then checks `l1`.
 - `pylhemus talk --port <PORT> send-raw <cmd>`: sends one raw command as-is (supports `^S` style control notation).
@@ -39,6 +40,12 @@ For normative command definitions, rely on the vendor PDF.
 - `pylhemus talk --port <PORT> dump-settings [--out file.json]`
   - Sends: all status + active stations + station commands for active stations.
   - Purpose: one-shot settings snapshot.
+  - Output: enriched JSON with parsed values plus restore metadata such as `system.toggles`, `sync_mode_annotated`, filter `*_cmd` fields, and per-station `*_cmd` fields.
+
+- `pylhemus talk --port <PORT> apply-settings --from file.json`
+  - Sends: restorable commands extracted from a previous dump.
+  - Restore order: system toggles, sync mode, filters, then per-station settings for active target stations only.
+  - Output: restore report with one entry per attempted command and `accepted|rejected|no_response` outcome.
 
 - `pylhemus talk --port <PORT> set-units cm|in`
   - Sends: `u` (metric) or `U` (english/inches).
@@ -106,8 +113,28 @@ For normative command definitions, rely on the vendor PDF.
 ## Notes for operators
 
 - Commands marked with `*` in the vendor manual are not persisted to EEPROM.
+- `dump-settings` and `read-settings` now emit restore-ready JSON fields alongside the parsed values. The added `*_cmd` fields contain the exact FASTRAK command text needed to restore that value.
+- `apply-settings` skips null restore fields and skips per-station commands for stations that are inactive on the target device.
+- `apply-settings` does not send `W` (reset defaults) or `^K` (save to EEPROM) automatically.
+- If you need persistence after `apply-settings`, send `pylhemus talk --port <PORT> send-raw ^K` manually after verifying the restore report.
 - Use `send-raw` for features not wrapped by friendly subcommands.
+- FASTRAK uses `*` as an in-line field terminator in some replies. `send-raw` now splits those fields into separate response entries automatically.
+- `send-raw` always reports `diagnostics.outcome` as one of `accepted`, `rejected`, or `no_response`.
 - If the device appears stuck in streaming mode, suspend transmission (`^S`) before querying settings.
+- Use `send-raw --prepare` if the device may still be in streaming or noisy mode before a query.
 - Some FASTRAK units/firmware configurations reject certain write/config commands and return
   `E*ERROR* ... EC -99 ...` even when query commands (for example `S`, `X`, `y`) still work.
   In that case, treat the command as unsupported in the current device mode/firmware profile.
+
+## Example backup and restore workflow
+
+```bash
+# Create a restore-ready JSON snapshot
+pylhemus talk --port COM1 dump-settings --out settings.json
+
+# Replay the saved settings to a device
+pylhemus talk --port COM1 apply-settings --from settings.json
+
+# Optionally persist the live configuration to EEPROM
+pylhemus talk --port COM1 send-raw ^K
+```

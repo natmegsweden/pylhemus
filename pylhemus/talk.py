@@ -36,6 +36,19 @@ def build_parser() -> argparse.ArgumentParser:
     dump_parser.add_argument("--out", type=Path, help="Optional output JSON file path")
     dump_parser.set_defaults(handler=_handle_dump_settings)
 
+    apply_parser = subparsers.add_parser(
+        "apply-settings",
+        help="Restore settings to device from a previously-saved JSON file",
+    )
+    apply_parser.add_argument(
+        "--from",
+        dest="from_file",
+        required=True,
+        type=Path,
+        help="Path to settings JSON file (produced by dump-settings)",
+    )
+    apply_parser.set_defaults(handler=_handle_apply_settings)
+
     set_units_parser = subparsers.add_parser("set-units", help="Set conversion units")
     set_units_parser.add_argument("units", choices=["cm", "in"], help="Target units")
     set_units_parser.set_defaults(handler=_handle_set_units)
@@ -50,6 +63,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--all-lines",
         action="store_true",
         help="Return all received lines instead of preferring command-matching lines",
+    )
+    raw_parser.add_argument(
+        "--prepare",
+        action="store_true",
+        help="Run ^S / c / F (ASCII+quiet) before sending the command",
     )
     raw_parser.add_argument("--read-timeout", type=float, default=1.0, help="Read timeout for this command")
     raw_parser.set_defaults(handler=_handle_send_raw)
@@ -148,6 +166,11 @@ def _handle_dump_settings(args: argparse.Namespace, ser) -> dict[str, Any]:
     return data
 
 
+def _handle_apply_settings(args: argparse.Namespace, ser) -> dict[str, Any]:
+    data = json.loads(args.from_file.read_text(encoding="utf-8"))
+    return read_settings.apply_settings(ser, data)
+
+
 def _handle_set_units(args: argparse.Namespace, ser) -> dict[str, Any]:
     read_settings.ensure_ascii_and_quiet(ser)
     command = "u" if args.units == "cm" else "U"
@@ -171,6 +194,8 @@ def _handle_prepare(args: argparse.Namespace, ser) -> dict[str, Any]:
 
 def _handle_send_raw(args: argparse.Namespace, ser) -> dict[str, Any]:
     normalized = _normalize_raw_command(args.raw_command)
+    if args.prepare:
+        read_settings.ensure_ascii_and_quiet(ser)
     response = read_settings.send_cmd(
         ser,
         normalized,
@@ -181,16 +206,13 @@ def _handle_send_raw(args: argparse.Namespace, ser) -> dict[str, Any]:
     if args.expect is None and not args.all_lines and isinstance(response, list):
         response = _prefer_matching_lines(response, normalized)
 
-    diagnostics = _build_raw_diagnostics(response)
-
     result: dict[str, Any] = {
         "command_input": args.raw_command,
         "command_sent": _display_command(normalized),
         "expect": args.expect,
         "response": response,
+        "diagnostics": read_settings._classify_response(response),
     }
-    if diagnostics is not None:
-        result["diagnostics"] = diagnostics
     return result
 
 
@@ -215,33 +237,6 @@ def _prefer_matching_lines(lines: list[str], command: str) -> list[str]:
         return lines
 
     tag = command[0]
-    pattern = re.compile(rf"^\s*\d+\s*{re.escape(tag)}", re.IGNORECASE)
+    pattern = re.compile(read_settings._tag_expect_pattern(tag), re.IGNORECASE)
     matching = [line for line in lines if pattern.search(line)]
     return matching if matching else lines
-
-
-def _build_raw_diagnostics(response: str | list[str]) -> dict[str, Any] | None:
-    lines = response if isinstance(response, list) else [response]
-    error_lines = [line for line in lines if "E*ERROR" in line]
-    if not error_lines:
-        return None
-
-    first = error_lines[0]
-    code_match = re.search(r"\bEC\s*(-?\d+)\b", first)
-    error_code = int(code_match.group(1)) if code_match else None
-
-    diagnostics: dict[str, Any] = {
-        "error": True,
-        "error_code": error_code,
-        "error_lines": error_lines,
-    }
-
-    if error_code == -99:
-        diagnostics["hint"] = (
-            "Device rejected the command (unsupported in current firmware/mode or invalid syntax). "
-            "On this FASTRAK, read/query commands may work while some write/config commands are not accepted."
-        )
-    else:
-        diagnostics["hint"] = "Device returned a FASTRAK error line; check command syntax and device mode."
-
-    return diagnostics

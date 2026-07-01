@@ -48,3 +48,24 @@ To query the FASTRAK configuration without opening the GUI, use:
 pylhemus read-settings --port COM1 --out plh_settings.json
 ```
 
+To create a restore-ready snapshot and replay it later, use:
+
+```python
+# Dump parsed settings plus restore command metadata
+pylhemus talk --port COM1 dump-settings --out plh_settings.json
+
+# Apply the saved settings to a live device
+pylhemus talk --port COM1 apply-settings --from plh_settings.json
+```
+
+`dump-settings` stores parsed values together with `*_cmd` fields containing the
+exact FASTRAK command needed to restore each writable setting. `apply-settings`
+replays those commands in restore-safe order and skips per-station settings for
+stations that are inactive on the target device.
+
+Settings are not saved to FASTRAK EEPROM automatically. If the restored
+configuration should persist across power cycles, send `^K` manually:
+
+```python
+pylhemus talk --port COM1 send-raw ^K
+```
