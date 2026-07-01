@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Sequence
@@ -45,6 +46,11 @@ def build_parser() -> argparse.ArgumentParser:
     raw_parser = subparsers.add_parser("send-raw", help="Send a raw FASTRAK command")
     raw_parser.add_argument("raw_command", help="Command text, for example S, X, l1, H1, ^S")
     raw_parser.add_argument("--expect", help="Optional regex expected in response")
+    raw_parser.add_argument(
+        "--all-lines",
+        action="store_true",
+        help="Return all received lines instead of preferring command-matching lines",
+    )
     raw_parser.add_argument("--read-timeout", type=float, default=1.0, help="Read timeout for this command")
     raw_parser.set_defaults(handler=_handle_send_raw)
 
@@ -164,7 +170,6 @@ def _handle_prepare(args: argparse.Namespace, ser) -> dict[str, Any]:
 
 
 def _handle_send_raw(args: argparse.Namespace, ser) -> dict[str, Any]:
-    read_settings.ensure_ascii_and_quiet(ser)
     normalized = _normalize_raw_command(args.raw_command)
     response = read_settings.send_cmd(
         ser,
@@ -173,12 +178,20 @@ def _handle_send_raw(args: argparse.Namespace, ser) -> dict[str, Any]:
         tries=1,
         read_timeout=args.read_timeout,
     )
-    return {
+    if args.expect is None and not args.all_lines and isinstance(response, list):
+        response = _prefer_matching_lines(response, normalized)
+
+    diagnostics = _build_raw_diagnostics(response)
+
+    result: dict[str, Any] = {
         "command_input": args.raw_command,
         "command_sent": _display_command(normalized),
         "expect": args.expect,
         "response": response,
     }
+    if diagnostics is not None:
+        result["diagnostics"] = diagnostics
+    return result
 
 
 def _normalize_raw_command(command: str) -> str:
@@ -192,3 +205,43 @@ def _display_command(command: str) -> str:
     if len(command) == 1 and ord(command) < 32:
         return "^" + chr(ord(command) + 64)
     return command
+
+
+def _prefer_matching_lines(lines: list[str], command: str) -> list[str]:
+    if not lines:
+        return lines
+
+    if len(command) == 1 and ord(command) < 32:
+        return lines
+
+    tag = command[0]
+    pattern = re.compile(rf"^\s*\d+\s*{re.escape(tag)}", re.IGNORECASE)
+    matching = [line for line in lines if pattern.search(line)]
+    return matching if matching else lines
+
+
+def _build_raw_diagnostics(response: str | list[str]) -> dict[str, Any] | None:
+    lines = response if isinstance(response, list) else [response]
+    error_lines = [line for line in lines if "E*ERROR" in line]
+    if not error_lines:
+        return None
+
+    first = error_lines[0]
+    code_match = re.search(r"\bEC\s*(-?\d+)\b", first)
+    error_code = int(code_match.group(1)) if code_match else None
+
+    diagnostics: dict[str, Any] = {
+        "error": True,
+        "error_code": error_code,
+        "error_lines": error_lines,
+    }
+
+    if error_code == -99:
+        diagnostics["hint"] = (
+            "Device rejected the command (unsupported in current firmware/mode or invalid syntax). "
+            "On this FASTRAK, read/query commands may work while some write/config commands are not accepted."
+        )
+    else:
+        diagnostics["hint"] = "Device returned a FASTRAK error line; check command syntax and device mode."
+
+    return diagnostics

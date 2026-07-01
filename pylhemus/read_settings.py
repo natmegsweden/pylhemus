@@ -87,7 +87,12 @@ def open_port(port: str, baud: int, timeout: float = 1.0) -> serial.Serial:
 
 
 def send_cmd(ser: serial.Serial, cmd: str, expect=None, tries: int = 3, read_timeout: float = 1.0):
-    full = cmd + "\r"
+    # FASTRAK control commands (for example ^S/^Q) are single control bytes and
+    # should be sent without a trailing carriage return.
+    if len(cmd) == 1 and ord(cmd) < 32:
+        full = cmd
+    else:
+        full = cmd + "\r"
     last_exc = None
     lines: list[str] = []
     for _ in range(tries):
