@@ -22,7 +22,7 @@ class FastrakConnector:
             n_receivers(): Queries the number of active receivers.
             set_factory_software_defaults(): Resets the device to factory defaults.
             clear_old_data(): Clears outdated data from the serial buffer.
-            output_metric(): Sets the measurement units to metric.
+            set_metric(): Switches to metric output and re-sends identity alignment.
             prepare_for_digitisation(): Prepares the device for digitisation use.
             get_position_relative_to_head_receiver(): Computes the position from the stylus relative to the head receiver.
         """
@@ -109,21 +109,28 @@ class FastrakConnector:
         while self.serialobj.in_waiting > 0:
             self.serialobj.read(self.serialobj.in_waiting)
 
-    def output_metric(self):
+    def set_metric(self):
+        """Switch to centimetres and re-send identity alignment in cm.
+
+        Send `U` first to establish a known inch baseline so the FASTRAK
+        rescales any inch-defined envelopes before switching back to `u`.
         """
-        Changes the output to centimeters instead of inches
-        """
-        self.send_serial_command(b"u")  # send 'u' command to set metric units
+        self.send_serial_command(b"U")
+        self.send_serial_command(b"u")
+
+        for station in range(1, self.n_receivers + 1):
+            cmd = f"A{station} 0 0 0 200 0 0 0 200 0\r".encode()
+            self.send_serial_command(cmd)
 
     def metal_compensation(self):
-        self.send_serial_command(b"d")  # send 'd' command to set metal compensation off
+        self.send_serial_command(b"D")  # send 'D' command to set metal compensation on
 
     def prepare_for_digitisation(self):
         self.set_factory_software_defaults()
-        self.metal_compensation()
         self.clear_old_data()
-        self.output_metric()
+        self.metal_compensation()
         self.query_n_receivers()
+        self.set_metric()
 
     def get_position_relative_to_head_receiver(self):
         # Read line-based FASTRAK records; avoid fixed byte thresholds because
