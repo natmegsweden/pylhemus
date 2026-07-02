@@ -1190,6 +1190,9 @@ class DigitisationMainWindow(QMainWindow):
             self._auto_capture_timer.stop()
             return
 
+        active_item = self.controller.current_item
+        active_dig_type = active_item.dig_type if active_item is not None else "single"
+
         try:
             position = self.controller.capture_from_connector()
         except Exception:
@@ -1207,8 +1210,6 @@ class DigitisationMainWindow(QMainWindow):
                     self.progress_label.setText(waiting_msg)
             return
 
-        active_item = self.controller.current_item
-        active_dig_type = active_item.dig_type if active_item is not None else "single"
         self._sound_manager.play_point_sound(active_dig_type)
         self.refresh_ui()
         if self.controller.is_finished:
@@ -1368,6 +1369,8 @@ class DigitisationMainWindow(QMainWindow):
 
         connector = self.controller.connector
         if hasattr(connector, "inject_point"):
+            active_item = self.controller.current_item
+            active_dig_type = active_item.dig_type if active_item is not None else "single"
             connector.inject_point(faulty=True)
             try:
                 position = self.controller.capture_from_connector()
@@ -1375,8 +1378,6 @@ class DigitisationMainWindow(QMainWindow):
                     self._sound_manager.play_faulty_sound()
                     self._show_faulty_warning()
                 else:
-                    active_item = self.controller.current_item
-                    active_dig_type = active_item.dig_type if active_item is not None else "single"
                     self._sound_manager.play_point_sound(active_dig_type)
                 self.refresh_ui()
             except Exception as exc:
