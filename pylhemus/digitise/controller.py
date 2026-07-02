@@ -141,7 +141,7 @@ class DigitisationController:
         if item.dig_type == "continuous" and item.unbounded:
             if self.current_label_idx < len(item.labels):
                 return item.labels[self.current_label_idx]
-            return f"{item.category}_{self.current_label_idx + 1}"
+            return f"{item.category}{self.current_label_idx + 1}"
         if self.current_label_idx >= len(item.labels):
             return None
         return item.labels[self.current_label_idx]

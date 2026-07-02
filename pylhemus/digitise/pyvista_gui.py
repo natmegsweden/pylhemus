@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QApplication,
     QMainWindow,
     QWidget,
+    QFrame,
     QVBoxLayout,
     QHBoxLayout,
     QPushButton,
@@ -384,7 +385,7 @@ class _AddSchemaItemDialog(QDialog):
         if self.template_combo.currentText() != "Custom":
             return
         n = self.custom_channels.value()
-        labels = [f"ch{i}" for i in range(1, n + 1)]
+        labels = [f"eeg{i}" for i in range(1, n + 1)]
         self.labels_edit.setText(", ".join(labels))
         self.labels_edit.setEnabled(False)
         self._custom_labels_dirty = False
@@ -1268,19 +1269,43 @@ class DigitisationMainWindow(QMainWindow):
         right_panel.setSpacing(10)
         right_panel.setContentsMargins(10, 10, 10, 10)
         
-        # Labels with thin border
-        label_style = "border: 1px solid #666; padding: 4px; border-radius: 2px; color: white;"
-        
-        self.category_label = QLabel("Category: -")
-        self.category_label.setStyleSheet(label_style)
-        self.target_label = QLabel("Target: -")
-        self.target_label.setStyleSheet(label_style)
-        self.progress_label = QLabel("Progress: -")
-        self.progress_label.setStyleSheet(label_style)
-        
-        right_panel.addWidget(self.category_label)
-        right_panel.addWidget(self.target_label)
-        right_panel.addWidget(self.progress_label)
+        self.status_frame = QFrame()
+        self.status_frame.setStyleSheet(
+            "QFrame {"
+            "background-color: #2a2a2e;"
+            "border: 1px solid #666;"
+            "border-radius: 6px;"
+            "padding: 8px;"
+            "}"
+        )
+        status_layout = QVBoxLayout(self.status_frame)
+        status_layout.setSpacing(8)
+        status_layout.setContentsMargins(10, 8, 10, 8)
+
+        status_top_row = QHBoxLayout()
+        status_top_row.setSpacing(8)
+        self.status_category_label = QLabel("-")
+        self.status_category_label.setStyleSheet(
+            "border: none; color: #aaa; font-size: 10pt; font-weight: 500;"
+        )
+        self.status_progress_label = QLabel("-")
+        self.status_progress_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.status_progress_label.setStyleSheet(
+            "border: none; color: #aaa; font-size: 10pt; font-weight: 500;"
+        )
+        status_top_row.addWidget(self.status_category_label, stretch=1)
+        status_top_row.addWidget(self.status_progress_label)
+
+        self.status_target_label = QLabel("-")
+        self.status_target_label.setAlignment(Qt.AlignCenter)
+        self.status_target_label.setStyleSheet(
+            "border: none; color: white; font-size: 18pt; font-weight: 700;"
+        )
+
+        status_layout.addLayout(status_top_row)
+        status_layout.addWidget(self.status_target_label)
+
+        right_panel.addWidget(self.status_frame)
         right_panel.addSpacing(20)
         
         # Square buttons (80x80)
@@ -1420,9 +1445,9 @@ class DigitisationMainWindow(QMainWindow):
 
     def refresh_ui(self):
         category, target, progress = self.controller.status_text()
-        self.category_label.setText(f"Category: {category}")
-        self.target_label.setText(f"Target: {target}")
-        self.progress_label.setText(f"Progress: {progress}")
+        self.status_category_label.setText(category)
+        self.status_target_label.setText(target)
+        self.status_progress_label.setText(progress)
 
         self._render_scene(highlight_row=self._selected_row)
         self._refresh_table()
@@ -1683,9 +1708,9 @@ class DigitisationMainWindow(QMainWindow):
                 self._sound_manager.play_faulty_sound()
                 self._show_faulty_warning()
             else:
-                waiting_msg = "Progress: waiting for FASTRAK data..."
-                if self.progress_label.text() != waiting_msg:
-                    self.progress_label.setText(waiting_msg)
+                waiting_msg = "waiting for FASTRAK data..."
+                if self.status_progress_label.text() != waiting_msg:
+                    self.status_progress_label.setText(waiting_msg)
             return
 
         self._sound_manager.play_point_sound(active_dig_type)
