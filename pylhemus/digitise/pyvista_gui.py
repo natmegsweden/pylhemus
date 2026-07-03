@@ -1567,14 +1567,130 @@ class DigitisationMainWindow(QMainWindow):
         dist = radius * 3.0
 
         camera = self.plotter.camera
+        frame = self._estimate_reset_view_frame(coords)
+        if frame is not None:
+            center = frame["focal_point"]
+            direction = frame["direction"]
+            view_up = frame["view_up"]
+            source = frame["source"]
+        else:
+            direction = np.array([-0.35, 1.25, 0.7], dtype=float)
+            direction /= np.linalg.norm(direction)
+            view_up = np.array([0.0, 0.0, 1.0], dtype=float)
+            source = "fallback"
+
+        if getattr(self.controller, "debug_serial", False):
+            mode = "transformed" if self._show_transformed and self.controller.has_valid_neuromag_transform() else "raw"
+            print(
+                "[RESET VIEW] "
+                f"mode={mode} source={source} center={tuple(np.round(center, 3))} "
+                f"direction={tuple(np.round(direction, 3))} view_up={tuple(np.round(view_up, 3))}"
+            )
+
         camera.SetFocalPoint(*center)
-        direction = np.array([0.954, 0.238, -0.182])
-        direction /= np.linalg.norm(direction)
         camera.SetPosition(*(center + direction * dist))
-        camera.SetViewUp(-0.160, -0.107, -0.981)
+        camera.SetViewUp(*view_up)
         self._camera_initialized = True
 
         self._render_scene(highlight_row=self._selected_row)
+
+    def _estimate_reset_view_frame(self, coords: np.ndarray) -> dict[str, np.ndarray | str] | None:
+        fiducials = self.controller.digitised_points
+        fiducials = fiducials[fiducials["category"] == "fiducials"]
+        if len(fiducials) < 3:
+            return None
+
+        display_points: list[np.ndarray] = []
+        for _, row in fiducials.iterrows():
+            point = (float(row["x"]), float(row["y"]), float(row["z"]))
+            if self._show_transformed and self.controller.has_valid_neuromag_transform():
+                transformed = self.controller.apply_neuromag_transform(point)
+                if transformed is None:
+                    continue
+                display_points.append(np.asarray(transformed, dtype=float))
+            else:
+                display_points.append(np.asarray(point, dtype=float))
+
+        if len(display_points) != 3:
+            return None
+
+        basis = self._estimate_cardinal_basis(np.vstack(display_points))
+        if basis is None:
+            return None
+
+        point_radius = max(np.max(np.linalg.norm(coords - basis["origin"], axis=1)), 1.0)
+        focal_point = basis["origin"] + (0.18 * point_radius) * basis["anterior"] + (0.05 * point_radius) * basis["superior"]
+        direction = (-0.42 * basis["right"]) + (1.35 * basis["anterior"]) + (0.72 * basis["superior"])
+        direction /= np.linalg.norm(direction)
+
+        view_up = basis["superior"] - np.dot(basis["superior"], direction) * direction
+        view_up_norm = np.linalg.norm(view_up)
+        if view_up_norm <= 1e-9:
+            view_up = basis["anterior"]
+        else:
+            view_up /= view_up_norm
+
+        return {
+            "focal_point": focal_point,
+            "direction": direction,
+            "view_up": view_up,
+            "source": str(basis["source"]),
+        }
+
+    def _estimate_cardinal_basis(self, points: np.ndarray) -> dict[str, np.ndarray | str] | None:
+        if points.shape != (3, 3):
+            return None
+
+        pair_distances: list[tuple[float, tuple[int, int]]] = []
+        for i in range(3):
+            for j in range(i + 1, 3):
+                pair_distances.append((float(np.linalg.norm(points[i] - points[j])), (i, j)))
+
+        _, lateral_pair = max(pair_distances, key=lambda item: item[0])
+        nasion_idx = next(index for index in range(3) if index not in lateral_pair)
+        lateral_indices = list(lateral_pair)
+
+        if self._show_transformed and self.controller.has_valid_neuromag_transform():
+            lateral_indices.sort(key=lambda index: points[index][0], reverse=True)
+        elif self._camera_initialized:
+            camera = self.plotter.camera
+            camera_dir = np.asarray(camera.position, dtype=float) - np.asarray(camera.focal_point, dtype=float)
+            if np.linalg.norm(camera_dir) > 1e-9:
+                trial = points[lateral_indices[0]] - points[lateral_indices[1]]
+                if np.dot(camera_dir, trial) < 0:
+                    lateral_indices.reverse()
+
+        left_idx, right_idx = lateral_indices
+        left = points[left_idx]
+        right = points[right_idx]
+        nasion = points[nasion_idx]
+
+        right_axis = right - left
+        right_norm = np.linalg.norm(right_axis)
+        if right_norm <= 1e-9:
+            return None
+        right_axis /= right_norm
+
+        origin = left + np.dot(nasion - left, right_axis) * right_axis
+        anterior = nasion - origin
+        anterior_norm = np.linalg.norm(anterior)
+        if anterior_norm <= 1e-9:
+            return None
+        anterior /= anterior_norm
+
+        superior = np.cross(right_axis, anterior)
+        superior_norm = np.linalg.norm(superior)
+        if superior_norm <= 1e-9:
+            return None
+        superior /= superior_norm
+
+        return {
+            "origin": origin,
+            "right": right_axis,
+            "anterior": anterior,
+            "superior": superior,
+            "source": "cardinal_estimate",
+        }
 
     def _render_scene(self, highlight_row=-1):
         self.plotter.clear()
