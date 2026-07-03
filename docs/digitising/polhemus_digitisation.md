@@ -31,7 +31,7 @@ Useful launch options:
 
 ```bash
 pylhemus gui --settings my_settings.json
-pylhemus gui --port COM3
+pylhemus gui
 pylhemus gui --output-dir output
 pylhemus gui --dev-mode
 pylhemus gui --restore-last
@@ -117,16 +117,17 @@ For project-specific overrides in the current working directory, use `pylhemus.s
 Dump a JSON summary:
 
 ```bash
-pylhemus read-settings --port COM3
-pylhemus read-settings --port COM3 >> plh_settings.json
+pylhemus read-settings
+pylhemus read-settings >> plh_settings.json
 ```
 
 Query the device interactively:
 
 ```bash
-pylhemus talk --port COM3 status
-pylhemus talk --port COM3 receivers
-pylhemus talk --port COM3 station --id 1
+pylhemus stream --metric
+pylhemus talk status
+pylhemus talk receivers
+pylhemus talk station --id 1
 ```
 
 See [Commands](../commands.md) for the full CLI overview and

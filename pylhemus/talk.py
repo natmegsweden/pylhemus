@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -55,6 +56,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     prepare_parser = subparsers.add_parser("prepare", help="Run basic prepare sequence (ASCII + defaults + metric)")
     prepare_parser.set_defaults(handler=_handle_prepare)
+
+    stream_parser = subparsers.add_parser("stream", help="Stream FASTRAK output without the GUI")
+    stream_parser.add_argument("--duration", type=float, default=0.0, help="Seconds to stream (0 = until interrupted)")
+    stream_parser.add_argument("--max-lines", type=int, default=0, help="Stop after this many received lines (0 = unlimited)")
+    stream_parser.add_argument("--parsed", action="store_true", help="Emit one JSON object per received line")
+    stream_parser.add_argument("--metric", action="store_true", help="Set centimeters before starting the stream")
+    stream_parser.add_argument("--no-prepare", action="store_true", help="Skip ^S / c / F before starting the stream")
+    stream_parser.set_defaults(handler=_handle_stream)
 
     raw_parser = subparsers.add_parser("send-raw", help="Send a raw FASTRAK command")
     raw_parser.add_argument("raw_command", help="Command text, for example S, X, l1, H1, ^S")
@@ -216,6 +225,87 @@ def _handle_send_raw(args: argparse.Namespace, ser) -> dict[str, Any]:
     return result
 
 
+def _handle_stream(args: argparse.Namespace, ser) -> dict[str, Any]:
+    if not args.no_prepare:
+        read_settings.ensure_ascii_and_quiet(ser)
+
+    if args.metric:
+        read_settings.send_cmd(ser, "u", tries=1, read_timeout=0.3)
+
+    ser.reset_input_buffer()
+    ser.write(b"C\r")
+    ser.flush()
+
+    start_time = time.time()
+    deadline = start_time + args.duration if args.duration and args.duration > 0 else None
+    total_lines = 0
+    sample_lines = 0
+    station_ids: set[int] = set()
+    first_line_at: float | None = None
+    interrupted = False
+    idle_notice_shown = False
+
+    try:
+        while True:
+            if deadline is not None and time.time() >= deadline:
+                break
+
+            raw = ser.readline()
+            if not raw:
+                if not idle_notice_shown and first_line_at is None and time.time() - start_time >= max(args.timeout * 2.0, 2.0):
+                    print(
+                        "No FASTRAK sample lines received yet; check continuous output, active stations, and pen clicks.",
+                        file=sys.stderr,
+                    )
+                    idle_notice_shown = True
+                continue
+
+            text = raw.decode("ascii", errors="ignore").strip()
+            if not text:
+                continue
+
+            first_line_at = first_line_at or time.time()
+            total_lines += 1
+
+            parsed = _parse_stream_sample(text)
+            if parsed is not None:
+                sample_lines += 1
+                station_id = parsed.get("station_id")
+                if isinstance(station_id, int):
+                    station_ids.add(station_id)
+
+            if args.parsed:
+                print(json.dumps(parsed if parsed is not None else {"sample": False, "raw": text}))
+            else:
+                print(text)
+            sys.stdout.flush()
+
+            if args.max_lines and total_lines >= args.max_lines:
+                break
+    except KeyboardInterrupt:
+        interrupted = True
+    finally:
+        try:
+            read_settings.send_cmd(ser, "c", tries=1, read_timeout=0.2)
+        except Exception:
+            pass
+
+    return {
+        "streaming_started": total_lines > 0,
+        "interrupted": interrupted,
+        "duration_seconds": round(time.time() - start_time, 3),
+        "lines_received": total_lines,
+        "sample_lines": sample_lines,
+        "non_sample_lines": total_lines - sample_lines,
+        "stations_seen": sorted(station_ids),
+        "hint": (
+            "No sample lines were received. Check whether the FASTRAK entered continuous output, whether stations are active, and whether pen clicks produce records."
+            if sample_lines == 0
+            else None
+        ),
+    }
+
+
 def _normalize_raw_command(command: str) -> str:
     text = command.strip()
     if len(text) == 2 and text.startswith("^"):
@@ -240,3 +330,33 @@ def _prefer_matching_lines(lines: list[str], command: str) -> list[str]:
     pattern = re.compile(read_settings._tag_expect_pattern(tag), re.IGNORECASE)
     matching = [line for line in lines if pattern.search(line)]
     return matching if matching else lines
+
+
+def _parse_stream_sample(line: str) -> dict[str, Any] | None:
+    try:
+        header = int(line[0:2].strip())
+        x = float(line[3:10].strip())
+        y = float(line[10:17].strip())
+        z = float(line[17:24].strip())
+        azimuth = float(line[24:31].strip())
+        elevation = float(line[31:38].strip())
+        roll = float(line[38:46].strip())
+    except Exception:
+        return None
+
+    station_id = header % 10
+    if station_id not in {1, 2, 3, 4}:
+        station_id = None
+
+    return {
+        "sample": True,
+        "raw": line,
+        "header": header,
+        "station_id": station_id,
+        "x": x,
+        "y": y,
+        "z": z,
+        "azimuth": azimuth,
+        "elevation": elevation,
+        "roll": roll,
+    }

@@ -47,6 +47,21 @@ def build_parser() -> argparse.ArgumentParser:
     talk_parser.add_argument("talk_args", nargs=argparse.REMAINDER, help="Arguments forwarded to 'pylhemus talk'")
     talk_parser.set_defaults(handler=_handle_talk)
 
+    stream_parser = subparsers.add_parser(
+        "stream",
+        help="Stream FASTRAK output without the GUI",
+        description="Open the FASTRAK serial port and print streamed sample lines without launching the GUI",
+    )
+    stream_parser.add_argument("--port", default="COM1", help="Serial port (e.g., COM3 or /dev/ttyUSB0)")
+    stream_parser.add_argument("--baud", type=int, default=9600, help="Baud rate (default: 9600)")
+    stream_parser.add_argument("--timeout", type=float, default=1.0, help="Serial read timeout in seconds (default: 1.0)")
+    stream_parser.add_argument("--duration", type=float, default=0.0, help="Seconds to stream (0 = until interrupted)")
+    stream_parser.add_argument("--max-lines", type=int, default=0, help="Stop after this many received lines (0 = unlimited)")
+    stream_parser.add_argument("--parsed", action="store_true", help="Emit one JSON object per received line")
+    stream_parser.add_argument("--metric", action="store_true", help="Set centimeters before starting the stream")
+    stream_parser.add_argument("--no-prepare", action="store_true", help="Skip ^S / c / F before starting the stream")
+    stream_parser.set_defaults(handler=_handle_stream)
+
     return parser
 
 
@@ -87,3 +102,26 @@ def _handle_talk(args: argparse.Namespace) -> int:
     if talk_args and talk_args[0] == "--":
         talk_args = talk_args[1:]
     return talk.main(talk_args)
+
+
+def _handle_stream(args: argparse.Namespace) -> int:
+    argv = [
+        "--port",
+        args.port,
+        "--baud",
+        str(args.baud),
+        "--timeout",
+        str(args.timeout),
+        "stream",
+        "--duration",
+        str(args.duration),
+        "--max-lines",
+        str(args.max_lines),
+    ]
+    if args.parsed:
+        argv.append("--parsed")
+    if args.metric:
+        argv.append("--metric")
+    if args.no_prepare:
+        argv.append("--no-prepare")
+    return talk.main(argv)

@@ -39,8 +39,8 @@ pylhemus gui --restore-last
 Read the current FASTRAK configuration and print it as JSON.
 
 ```bash
-pylhemus read-settings --port COM3
-pylhemus read-settings --port COM3 >> settings.json
+pylhemus read-settings
+pylhemus read-settings >> settings.json
 ```
 
 Supported options:
@@ -56,13 +56,13 @@ Run readable FASTRAK inspection and control commands.
 Example commands:
 
 ```bash
-pylhemus talk --port COM3 status
-pylhemus talk --port COM3 receivers
-pylhemus talk --port COM3 station --id 1
-pylhemus talk --port COM3 dump-settings --out settings.json
-pylhemus talk --port COM3 set-units cm
-pylhemus talk --port COM3 prepare
-pylhemus talk --port COM3 send-raw S
+pylhemus talk status
+pylhemus talk receivers
+pylhemus talk station --id 1
+pylhemus talk dump-settings --out settings.json
+pylhemus talk set-units cm
+pylhemus talk prepare
+pylhemus talk send-raw S
 ```
 
 Supported subcommands:
@@ -74,6 +74,26 @@ Supported subcommands:
 - `set-units cm|in` changes the active measurement units
 - `prepare` runs the basic prepare sequence
 - `send-raw <command>` sends a raw FASTRAK command
+
+## `pylhemus stream`
+
+Open the FASTRAK serial port and print streamed records without launching the GUI.
+
+```bash
+pylhemus stream --port COM3 --metric
+pylhemus stream --port COM3 --parsed --max-lines 20
+```
+
+Supported options:
+
+- `--port <port>` serial port, default `COM1`
+- `--baud <int>` baud rate, default `9600`
+- `--timeout <seconds>` serial read timeout, default `1.0`
+- `--duration <seconds>` stream for a fixed duration; `0` means until interrupted
+- `--max-lines <int>` stop after this many received lines; `0` means unlimited
+- `--parsed` emit one JSON object per received line
+- `--metric` set centimeters before starting the stream
+- `--no-prepare` skip `^S / c / F` before starting the stream
 
 Global options:
 

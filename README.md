@@ -41,17 +41,21 @@ pylhemus gui --dev-mode
 pylhemus gui --restore-last
 
 # Read FASTRAK settings
-pylhemus read-settings --port COM1
-pylhemus read-settings --port COM1 >> settings.json
+pylhemus read-settings
+pylhemus read-settings >> settings.json
+
+# Stream FASTRAK sample lines without the GUI
+pylhemus stream --metric
+pylhemus stream --parsed --max-lines 20
 
 # Friendly FASTRAK command interface
-pylhemus talk --port COM1 status
-pylhemus talk --port COM1 receivers
-pylhemus talk --port COM1 station --id 1
-pylhemus talk --port COM1 dump-settings --out settings.json
-pylhemus talk --port COM1 apply-settings --from settings.json
-pylhemus talk --port COM1 set-units cm
-pylhemus talk --port COM1 send-raw S
+pylhemus talk status
+pylhemus talk receivers
+pylhemus talk station --id 1
+pylhemus talk dump-settings --out settings.json
+pylhemus talk apply-settings --from settings.json
+pylhemus talk set-units cm
+pylhemus talk send-raw S
 
 # Run without installing
 python -m pylhemus gui
@@ -99,20 +103,21 @@ After all three fiducials are present, the GUI computes the Neuromag transform a
 
 - `pylhemus gui` for the main digitisation workflow
 - `pylhemus read-settings` for dumping FASTRAK settings to JSON
+- `pylhemus stream` for raw FASTRAK streaming without the GUI
 - `pylhemus talk` for readable FASTRAK inspection and control commands
 
 Examples:
 
 ```bash
-pylhemus read-settings --port COM3
-pylhemus read-settings --port COM3 >> settings.json
-pylhemus talk --port COM3 status
-pylhemus talk --port COM3 receivers
-pylhemus talk --port COM3 station --id 1
-pylhemus talk --port COM3 dump-settings --out settings.json
-pylhemus talk --port COM3 set-units cm
-pylhemus talk --port COM3 prepare
-pylhemus talk --port COM3 send-raw S
+pylhemus read-settings
+pylhemus read-settings >> settings.json
+pylhemus talk status
+pylhemus talk receivers
+pylhemus talk station --id 1
+pylhemus talk dump-settings --out settings.json
+pylhemus talk set-units cm
+pylhemus talk prepare
+pylhemus talk send-raw S
 ```
 
 ## Settings
