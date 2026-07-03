@@ -72,7 +72,6 @@ class DigitisationController:
     def __init__(self, connector: Any, digitisation_scheme: list[dict] | None = None):
         self.connector = connector
         self.debug_serial = os.getenv("PYLHEMUS_DEBUG_SERIAL", "").lower() in {"1", "true", "yes", "on"}
-        self.auto_swap_cardinals: bool = False
         self.scheme: list[SchemeItem] = []
         self.digitised_points = pd.DataFrame(columns=["category", "label", "x", "y", "z"])
         self.current_scheme_idx = 0
@@ -83,6 +82,8 @@ class DigitisationController:
         self._transform_valid: bool = False
         self._auto_switched_to_transformed: bool = False
         self._last_capture_rejected: bool = False
+        self._pending_cardinal_warning: str | None = None
+        self._last_cardinal_warning_signature: tuple[str, ...] | None = None
 
         for item in digitisation_scheme or []:
             self.add(**item)
@@ -152,6 +153,8 @@ class DigitisationController:
         self.current_label_idx = 0
         if self.connector is not None:
             self.connector.clear_old_data()
+        self._pending_cardinal_warning = None
+        self._last_cardinal_warning_signature = None
 
     def capture_from_connector(self) -> tuple[float, float, float] | None:
         item = self.current_item
@@ -248,38 +251,44 @@ class DigitisationController:
         self.digitised_points = pd.concat([self.digitised_points, new_data], ignore_index=True)
 
         if item.category == "fiducials" and item.dig_type == "single":
-            self._maybe_auto_swap_cardinals()
+            self._warn_if_fiducials_look_inconsistent()
 
         self.current_label_idx += 1
         self._advance_if_needed()
         self.update_neuromag_transform()
 
-    def _maybe_auto_swap_cardinals(self):
-        if not self.auto_swap_cardinals:
-            return
-
+    def _warn_if_fiducials_look_inconsistent(self):
         fiducial_indices = self.digitised_points.index[self.digitised_points["category"] == "fiducials"].tolist()
         if len(fiducial_indices) != 3:
             return
 
         coords = self.digitised_points.loc[fiducial_indices, ["x", "y", "z"]].astype(float).to_numpy()
-        ordered_indices = self._infer_cardinal_order(coords)
-        desired_labels = ["lpa", "nasion", "rpa"]
-        reordered_labels = [desired_labels[ordered_indices.index(i)] for i in range(3)]
         current_labels = self.digitised_points.loc[fiducial_indices, "label"].astype(str).tolist()
-
-        if current_labels == reordered_labels:
+        suggested_nasion_idx = self._infer_nasion_index(coords)
+        if current_labels[suggested_nasion_idx] == "nasion":
             return
 
-        if self.debug_serial:
-            print(f"[CARDINAL AUTO-SWAP] {current_labels} -> {reordered_labels}")
+        suggestion = current_labels[suggested_nasion_idx]
+        signature = tuple(current_labels)
+        if self._last_cardinal_warning_signature == signature:
+            return
 
-        self.digitised_points.loc[fiducial_indices, "label"] = reordered_labels
+        message = (
+            "Fiducial geometry looks inconsistent with the current labels. "
+            f"The point labelled '{suggestion}' appears to be the nasion, based on the current geometry. "
+            "Labels were not changed automatically; verify LPA / nasion / RPA before continuing."
+        )
+
+        if self.debug_serial:
+            print(f"[CARDINAL WARNING] labels={current_labels} suggested_nasion={suggestion}")
+
+        self._pending_cardinal_warning = message
+        self._last_cardinal_warning_signature = signature
 
     @staticmethod
-    def _infer_cardinal_order(coords: np.ndarray) -> list[int]:
+    def _infer_nasion_index(coords: np.ndarray) -> int:
         if coords.shape != (3, 3):
-            raise ValueError("Cardinal auto-swap requires exactly three 3D fiducial points.")
+            raise ValueError("Cardinal warning requires exactly three 3D fiducial points.")
 
         pair_distances: list[tuple[float, tuple[int, int]]] = []
         for i in range(3):
@@ -288,9 +297,12 @@ class DigitisationController:
                 pair_distances.append((distance, (i, j)))
 
         _, lr_pair = max(pair_distances, key=lambda item: item[0])
-        nasion_idx = next(index for index in range(3) if index not in lr_pair)
-        left_idx, right_idx = sorted(lr_pair, key=lambda index: coords[index, 1], reverse=True)
-        return [left_idx, nasion_idx, right_idx]
+        return next(index for index in range(3) if index not in lr_pair)
+
+    def pop_pending_cardinal_warning(self) -> str | None:
+        warning = self._pending_cardinal_warning
+        self._pending_cardinal_warning = None
+        return warning
 
     def next_target(self):
         if self.current_item is None:
@@ -344,6 +356,8 @@ class DigitisationController:
             self.current_label_idx = 0
 
         self._auto_switched_to_transformed = False
+        self._pending_cardinal_warning = None
+        self._last_cardinal_warning_signature = None
         self.update_neuromag_transform(force=True)
 
     def update_point(self, index: int, category: str, label: str, x: float, y: float, z: float):
@@ -357,6 +371,8 @@ class DigitisationController:
         self.digitised_points.loc[index, "z"] = float(z)
 
         self._auto_switched_to_transformed = False
+        self._pending_cardinal_warning = None
+        self._last_cardinal_warning_signature = None
         self.update_neuromag_transform(force=True)
 
     def save_csv(self, output_path: Path):

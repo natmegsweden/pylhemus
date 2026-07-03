@@ -24,10 +24,6 @@ def _parse_fastrak_hemisphere(dig_settings: dict) -> tuple[float, float, float] 
     return values
 
 
-def _parse_auto_swap_cardinals(dig_settings: dict) -> bool:
-    return bool(dig_settings.get("auto_swap_cardinals", True))
-
-
 def _open_viewer(app: QApplication, df, participant_id: str) -> int:
     from .digitise import DevModeConnector
 
@@ -101,7 +97,6 @@ def launch_gui(
 
     com_port = serial_port or settings.get("serial_port", "COM1")
     hemisphere = _parse_fastrak_hemisphere(dig_settings)
-    auto_swap_cardinals = _parse_auto_swap_cardinals(dig_settings)
     configured_output_dir = output_dir or dig_settings.get("output_dir", "output")
     output_path = Path(configured_output_dir)
     if not output_path.is_absolute():
@@ -138,7 +133,6 @@ def launch_gui(
         dev_mode = True
 
     controller = DigitisationController(connector=connector)
-    controller.auto_swap_cardinals = auto_swap_cardinals
     controller.participant_id = participant_id
     controller.project = project
     for item in schema_items:

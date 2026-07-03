@@ -97,14 +97,14 @@ Example:
 {
   "serial_port": "COM3",
   "digitisation": {
-    "auto_swap_cardinals": true,
     "hemisphere": [0, 0, 1]
   }
 }
 ```
 
-`digitisation.auto_swap_cardinals` enables old-style automatic reordering of
-the first three fiducials.
+The GUI no longer reorders the first three fiducials automatically. If the
+captured geometry suggests the current labels are inconsistent, it shows a
+warning and keeps the labels unchanged.
 
 `digitisation.hemisphere` maps to FASTRAK `H` for each active station during
 startup. The default `[0, 0, 1]` matches the old Neuromag Isotrak configs that

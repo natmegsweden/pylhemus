@@ -1155,6 +1155,10 @@ class DigitisationMainWindow(QMainWindow):
         self._faulty_warning_timer.setSingleShot(True)
         self._faulty_warning_timer.timeout.connect(self._hide_faulty_warning)
 
+        self._cardinal_warning_timer = QTimer(self)
+        self._cardinal_warning_timer.setSingleShot(True)
+        self._cardinal_warning_timer.timeout.connect(self._hide_cardinal_warning)
+
         pid = getattr(controller, "participant_id", "") or ""
         if self._read_only:
             title = "OPM Digitisation — Viewer"
@@ -1505,6 +1509,10 @@ class DigitisationMainWindow(QMainWindow):
         self._refresh_table()
         self._update_transform_ui()
 
+        warning = self.controller.pop_pending_cardinal_warning()
+        if warning:
+            self._show_cardinal_warning(warning)
+
     def _update_transform_ui(self):
         has_transform = self.controller.has_valid_neuromag_transform()
         self.transform_toggle_btn.setEnabled(has_transform)
@@ -1786,6 +1794,24 @@ class DigitisationMainWindow(QMainWindow):
     def _hide_faulty_warning(self):
         if hasattr(self, "_faulty_warning_label"):
             self._faulty_warning_label.hide()
+
+    def _show_cardinal_warning(self, message: str):
+        if hasattr(self, "_cardinal_warning_label"):
+            self._cardinal_warning_label.hide()
+        else:
+            self._cardinal_warning_label = QLabel()
+            self._cardinal_warning_label.setWordWrap(True)
+            self._cardinal_warning_label.setStyleSheet(
+                "background-color: #d69e2e; color: black; padding: 6px; font-weight: bold; font-size: 12px;"
+            )
+            self.centralWidget().layout().insertWidget(0, self._cardinal_warning_label)
+        self._cardinal_warning_label.setText(message)
+        self._cardinal_warning_label.show()
+        self._cardinal_warning_timer.start(5000)
+
+    def _hide_cardinal_warning(self):
+        if hasattr(self, "_cardinal_warning_label"):
+            self._cardinal_warning_label.hide()
 
     def on_undo(self):
         self.controller.undo()
