@@ -114,7 +114,14 @@ def launch_gui(
     if not dev_mode:
         try:
             connector = FastrakConnector(usb_port=com_port, hemisphere=hemisphere)
-            connector.prepare_for_digitisation()
+            startup_warnings = connector.prepare_for_digitisation()
+            if startup_warnings:
+                QMessageBox.warning(
+                    None,
+                    "FASTRAK Settings Failed",
+                    "Connected to FASTRAK, but some startup settings were rejected or could not be verified.\n\n"
+                    + "\n".join(f"- {warning}" for warning in startup_warnings),
+                )
         except Exception as exc:
             QMessageBox.information(
                 None,

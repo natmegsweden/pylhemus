@@ -138,13 +138,13 @@ def _floats_to_cmd(tag: str, values: float | int | list[float] | tuple[float, ..
 
     if not float_values:
         return None
-    return tag + " " + " ".join(f"{value:.6g}" for value in float_values)
+    return tag + "," + ",".join(f"{value:.6g}" for value in float_values)
 
 
 def _ints_to_cmd(tag: str, values: list[int] | None) -> str | None:
     if not values:
         return None
-    return tag + " " + " ".join(str(value) for value in values)
+    return tag + "," + ",".join(str(value) for value in values)
 
 
 def _filter_restore_cmd(tag: str, vals: dict[str, float] | None) -> str | None:

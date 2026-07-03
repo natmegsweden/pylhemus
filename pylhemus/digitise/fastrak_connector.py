@@ -37,6 +37,7 @@ class FastrakConnector:
         self.n_receivers = 0
         self.debug_serial = os.getenv("PYLHEMUS_DEBUG_SERIAL", "").lower() in {"1", "true", "yes", "on"}
         self.hemisphere = self._normalize_hemisphere(hemisphere)
+        self.startup_warnings: list[str] = []
 
         # initialize serial object
         self.serialobj = serial.Serial(
@@ -92,6 +93,54 @@ class FastrakConnector:
         if np.linalg.norm(values) <= 1e-9:
             raise ValueError("FASTRAK hemisphere vector must have non-zero length.")
         return values
+
+    @staticmethod
+    def _format_station_write(tag: str, station: int, values) -> bytes:
+        payload = ",".join(f"{float(value):.6g}" for value in values)
+        return f"{tag}{station},{payload}\r".encode()
+
+    @staticmethod
+    def _extract_error_code(lines: list[str]) -> int | None:
+        for line in lines:
+            match = re.search(r"\bEC\s*(-?\d+)\b", line)
+            if match:
+                return int(match.group(1))
+        return None
+
+    @staticmethod
+    def _has_error(lines: list[str]) -> bool:
+        return any("ERROR" in line.upper() for line in lines) or FastrakConnector._extract_error_code(lines) is not None
+
+    @staticmethod
+    def _parse_numeric_values(line: str) -> list[float]:
+        return [float(value) for value in re.findall(r"[-+]?\d+(?:\.\d+)?", line)]
+
+    def _add_startup_warning(self, message: str):
+        if message not in self.startup_warnings:
+            self.startup_warnings.append(message)
+        if self.debug_serial:
+            print(f"[FASTRAK WARN] {message}")
+
+    def _record_write_result(self, *, label: str, station: int, lines: list[str]):
+        if not self._has_error(lines):
+            return
+
+        error_code = self._extract_error_code(lines)
+        detail = f" (EC {error_code})" if error_code is not None else ""
+        self._add_startup_warning(
+            f"Failed to apply FASTRAK {label} setting for station {station}{detail}."
+        )
+
+    def _query_hemisphere(self, station: int) -> tuple[float, float, float] | None:
+        lines = self.send_serial_command(f"H{station}\r".encode(), read_timeout=0.3)
+        self._record_write_result(label="hemisphere readback", station=station, lines=lines)
+        for line in lines:
+            if "H" not in line.upper():
+                continue
+            values = self._parse_numeric_values(line)
+            if len(values) >= 3:
+                return tuple(values[-3:])
+        return None
 
     def query_n_receivers(self, read_timeout: float = 0.5):
         self.send_serial_command(b"P")  # Send 'P' command to request number of probes
@@ -158,8 +207,9 @@ class FastrakConnector:
         self.send_serial_command(b"u")
 
         for station in range(1, self.n_receivers + 1):
-            cmd = f"A{station} 0 0 0 200 0 0 0 200 0\r".encode()
-            self.send_serial_command(cmd)
+            cmd = self._format_station_write("A", station, [0, 0, 0, 200, 0, 0, 0, 200, 0])
+            lines = self.send_serial_command(cmd, read_timeout=0.2)
+            self._record_write_result(label="alignment", station=station, lines=lines)
 
     def set_hemisphere(self):
         if self.hemisphere is None:
@@ -167,17 +217,29 @@ class FastrakConnector:
 
         x, y, z = self.hemisphere
         for station in range(1, self.n_receivers + 1):
-            cmd = f"H{station} {x:.6g} {y:.6g} {z:.6g}\r".encode()
-            self.send_serial_command(cmd, read_timeout=0.2 if self.debug_serial else 0.0)
+            expected = (x, y, z)
+            cmd = self._format_station_write("H", station, expected)
+            lines = self.send_serial_command(cmd, read_timeout=0.2)
+            self._record_write_result(label="hemisphere", station=station, lines=lines)
 
-            if self.debug_serial:
-                query = f"H{station}\r".encode()
-                self.send_serial_command(query, read_timeout=0.3)
+            actual = self._query_hemisphere(station)
+            if actual is None:
+                self._add_startup_warning(
+                    f"Could not verify FASTRAK hemisphere for station {station} after applying settings."
+                )
+                continue
+
+            if not np.allclose(actual, expected, atol=1e-3):
+                self._add_startup_warning(
+                    "FASTRAK hemisphere readback mismatch for station "
+                    f"{station}: requested {expected}, device reported {actual}."
+                )
 
     def metal_compensation(self):
         self.send_serial_command(b"D")  # send 'D' command to set metal compensation on
 
     def prepare_for_digitisation(self):
+        self.startup_warnings = []
         self.set_factory_software_defaults()
         self.clear_old_data()
         self.metal_compensation()
@@ -185,6 +247,7 @@ class FastrakConnector:
         self.set_metric()
         self.set_hemisphere()
         self.clear_old_data()
+        return list(self.startup_warnings)
 
     def get_position_relative_to_head_receiver(self):
         # Read line-based FASTRAK records; avoid fixed byte thresholds because
