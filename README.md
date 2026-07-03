@@ -41,7 +41,8 @@ pylhemus gui --dev-mode
 pylhemus gui --restore-last
 
 # Read FASTRAK settings
-pylhemus read-settings --port COM1 --out settings.json
+pylhemus read-settings --port COM1
+pylhemus read-settings --port COM1 >> settings.json
 
 # Friendly FASTRAK command interface
 pylhemus talk --port COM1 status
@@ -103,7 +104,8 @@ After all three fiducials are present, the GUI computes the Neuromag transform a
 Examples:
 
 ```bash
-pylhemus read-settings --port COM3 --out settings.json
+pylhemus read-settings --port COM3
+pylhemus read-settings --port COM3 >> settings.json
 pylhemus talk --port COM3 status
 pylhemus talk --port COM3 receivers
 pylhemus talk --port COM3 station --id 1

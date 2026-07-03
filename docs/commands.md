@@ -36,17 +36,18 @@ pylhemus gui --restore-last
 
 ## `pylhemus read-settings`
 
-Read the current FASTRAK configuration and write it to JSON.
+Read the current FASTRAK configuration and print it as JSON.
 
 ```bash
-pylhemus read-settings --port COM3 --out settings.json
+pylhemus read-settings --port COM3
+pylhemus read-settings --port COM3 >> settings.json
 ```
 
 Supported options:
 
 - `--port <port>` required serial port
 - `--baud <int>` baud rate, default `9600`
-- `--out <path>` required output JSON path
+- `--out <path>` optional output JSON path; if omitted, JSON is printed to stdout
 - `--timeout <seconds>` serial read timeout, default `1.0`
 
 ## `pylhemus talk`

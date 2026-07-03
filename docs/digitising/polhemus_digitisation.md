@@ -117,7 +117,8 @@ For project-specific overrides in the current working directory, use `pylhemus.s
 Dump a JSON summary:
 
 ```bash
-pylhemus read-settings --port COM3 --out plh_settings.json
+pylhemus read-settings --port COM3
+pylhemus read-settings --port COM3 >> plh_settings.json
 ```
 
 Query the device interactively:
