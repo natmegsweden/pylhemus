@@ -78,10 +78,13 @@ Supported subcommands:
 ## `pylhemus stream`
 
 Open the FASTRAK serial port and print streamed records without launching the GUI.
+This command uses the same startup/settings path as the GUI, including
+`digitisation.hemisphere`.
 
 ```bash
 pylhemus stream --port COM3 --metric
 pylhemus stream --port COM3 --parsed --max-lines 20
+pylhemus stream --port COM3 --max-lines 20
 ```
 
 Supported options:
