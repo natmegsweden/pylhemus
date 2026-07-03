@@ -62,10 +62,13 @@ The GUI provides:
 - point capture progress and current target labels
 - a 3D point view
 - a table of raw and transformed coordinates
-- `Undo`, `Restart`, `Save CSV`, and `Finish` actions
+- `Undo`, `Delete`, `Restart`, `Save`, and `Finish` actions
 - point deletion for selected continuous points
 
 Duplicate protection applies to single-capture categories such as fiducials and HPI coils.
+By default, the first three fiducials are auto-swapped to `lpa`, `nasion`, and
+`rpa` using the old Neuromag-style assumption that nasion is the front-most
+point and LPA/RPA are separated primarily along the sensor-frame `y` axis.
 
 ## Saving and restoring
 
@@ -92,9 +95,20 @@ Example:
 
 ```json
 {
-  "serial_port": "COM3"
+  "serial_port": "COM3",
+  "digitisation": {
+    "auto_swap_cardinals": true,
+    "hemisphere": [0, 0, 1]
+  }
 }
 ```
+
+`digitisation.auto_swap_cardinals` enables old-style automatic reordering of
+the first three fiducials.
+
+`digitisation.hemisphere` maps to FASTRAK `H` for each active station during
+startup. The default `[0, 0, 1]` matches the old Neuromag Isotrak configs that
+were recovered from the legacy `dacq` tree.
 
 For project-specific overrides in the current working directory, use `pylhemus.settings.json`.
 

@@ -7,7 +7,12 @@ import os
 
 class FastrakConnector:
     def __init__(
-        self, usb_port: str, stylus_receiver:int=0, head_reference:int=1, data_length:int=47
+        self,
+        usb_port: str,
+        stylus_receiver:int=0,
+        head_reference:int=1,
+        data_length:int=47,
+        hemisphere=(0.0, 0.0, 1.0),
     ):
         """
         A class to interface with the Polhemus FASTRAK system.
@@ -31,6 +36,7 @@ class FastrakConnector:
         self.data_length = data_length
         self.n_receivers = 0
         self.debug_serial = os.getenv("PYLHEMUS_DEBUG_SERIAL", "").lower() in {"1", "true", "yes", "on"}
+        self.hemisphere = self._normalize_hemisphere(hemisphere)
 
         # initialize serial object
         self.serialobj = serial.Serial(
@@ -45,7 +51,11 @@ class FastrakConnector:
             xonxoff=False,  # No software flow control
         )
 
-    def send_serial_command(self, command:bytes, sleep_time:float=0.1):
+    def send_serial_command(self, command:bytes, sleep_time:float=0.1, read_timeout:float=0.0):
+        if self.debug_serial:
+            cmd_text = command.decode(errors="ignore").replace("\r", "\\r").replace("\n", "\\n")
+            print(f"[FASTRAK CMD] {cmd_text}")
+
         try:
             self.serialobj.write(command)
             time.sleep(sleep_time)
@@ -53,6 +63,35 @@ class FastrakConnector:
             print("Serial write timeout occurred.")
         except serial.SerialException as e:
             print(f"Serial communication error: {e}")
+
+        lines: list[str] = []
+        if read_timeout > 0:
+            end_time = time.time() + read_timeout
+            while time.time() < end_time:
+                if self.serialobj.in_waiting <= 0:
+                    time.sleep(0.01)
+                    continue
+                line = self.serialobj.readline().decode(errors="ignore").strip()
+                if line:
+                    lines.append(line)
+
+        if self.debug_serial:
+            for line in lines:
+                print(f"[FASTRAK RESP] {line}")
+
+        return lines
+
+    @staticmethod
+    def _normalize_hemisphere(hemisphere):
+        if hemisphere is None:
+            return None
+        if not isinstance(hemisphere, (list, tuple)) or len(hemisphere) != 3:
+            raise ValueError("FASTRAK hemisphere must be a 3-value list or tuple.")
+
+        values = tuple(float(value) for value in hemisphere)
+        if np.linalg.norm(values) <= 1e-9:
+            raise ValueError("FASTRAK hemisphere vector must have non-zero length.")
+        return values
 
     def query_n_receivers(self, read_timeout: float = 0.5):
         self.send_serial_command(b"P")  # Send 'P' command to request number of probes
@@ -122,6 +161,19 @@ class FastrakConnector:
             cmd = f"A{station} 0 0 0 200 0 0 0 200 0\r".encode()
             self.send_serial_command(cmd)
 
+    def set_hemisphere(self):
+        if self.hemisphere is None:
+            return
+
+        x, y, z = self.hemisphere
+        for station in range(1, self.n_receivers + 1):
+            cmd = f"H{station} {x:.6g} {y:.6g} {z:.6g}\r".encode()
+            self.send_serial_command(cmd, read_timeout=0.2 if self.debug_serial else 0.0)
+
+            if self.debug_serial:
+                query = f"H{station}\r".encode()
+                self.send_serial_command(query, read_timeout=0.3)
+
     def metal_compensation(self):
         self.send_serial_command(b"D")  # send 'D' command to set metal compensation on
 
@@ -131,6 +183,8 @@ class FastrakConnector:
         self.metal_compensation()
         self.query_n_receivers()
         self.set_metric()
+        self.set_hemisphere()
+        self.clear_old_data()
 
     def get_position_relative_to_head_receiver(self):
         # Read line-based FASTRAK records; avoid fixed byte thresholds because

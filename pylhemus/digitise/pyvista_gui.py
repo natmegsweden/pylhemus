@@ -44,6 +44,7 @@ from PyQt5.QtMultimedia import QSoundEffect
 from pyvistaqt import QtInteractor
 
 from .controller import DigitisationController
+from ..read_data import read_file
 from ..settings_loader import load_settings
 from ..template.registry import list_templates, create_template
 
@@ -990,6 +991,8 @@ class LaunchDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("OPM Digitisation — New Session")
         self.setMinimumSize(420, 300)
+        self.loaded_data: pd.DataFrame | None = None
+        self.loaded_data_path: Path | None = None
 
         dig = _load_dig_settings()
         self._presets: dict = dig.get("schema_presets", {})
@@ -1019,6 +1022,9 @@ class LaunchDialog(QDialog):
         layout.addLayout(form)
 
         btn_row = QHBoxLayout()
+        self.load_data_btn = QPushButton("Load Data...")
+        self.load_data_btn.clicked.connect(self._on_load_data)
+        btn_row.addWidget(self.load_data_btn)
         settings_btn = QPushButton("Settings...")
         settings_btn.clicked.connect(self._open_settings)
         btn_row.addWidget(settings_btn)
@@ -1028,7 +1034,7 @@ class LaunchDialog(QDialog):
         cancel_btn = QPushButton("Cancel")
         ok_btn.clicked.connect(self._on_accept)
         cancel_btn.clicked.connect(self.reject)
-        for _btn in (settings_btn, cancel_btn, ok_btn):
+        for _btn in (self.load_data_btn, settings_btn, cancel_btn, ok_btn):
             _btn.setMinimumHeight(DIALOG_BTN_HEIGHT)
         btn_row.addWidget(cancel_btn)
         btn_row.addWidget(ok_btn)
@@ -1037,6 +1043,9 @@ class LaunchDialog(QDialog):
         self.project_edit.returnPressed.connect(self._on_accept)
 
     def _on_accept(self):
+        if self.loaded_data is not None:
+            self.accept()
+            return
         if not self.project_edit.text().strip():
             QMessageBox.warning(self, "Required", "Project cannot be empty.")
             return
@@ -1044,6 +1053,29 @@ class LaunchDialog(QDialog):
             QMessageBox.warning(self, "Required", "Participant ID cannot be empty.")
             return
         self.accept()
+
+    def _on_load_data(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load digitisation data",
+            str(Path.cwd()),
+            "Data files (*.csv *.fif *.json)",
+        )
+        if not path:
+            return
+
+        data_path = Path(path)
+        try:
+            self.loaded_data = read_file(data_path)
+            self.loaded_data_path = data_path
+        except Exception as exc:
+            self.loaded_data = None
+            self.loaded_data_path = None
+            self.load_data_btn.setText("Load Data...")
+            QMessageBox.critical(self, "Load Failed", str(exc))
+            return
+
+        self.load_data_btn.setText(f"Loaded: {data_path.name}")
 
     @property
     def project(self) -> str:
@@ -1098,13 +1130,14 @@ class LaunchDialog(QDialog):
 # ---------------------------------------------------------------------------
 
 class DigitisationMainWindow(QMainWindow):
-    def __init__(self, controller: DigitisationController, dev_mode: bool = False):
+    def __init__(self, controller: DigitisationController, dev_mode: bool = False, read_only: bool = False):
         super().__init__()
         self.controller = controller
         self._updating_table = False
         self._camera_initialized = False
         self._zoom_factor = 1.0
         self._dev_mode = dev_mode
+        self._read_only = read_only
         self._show_transformed = False
         self._selected_row = -1
         self._session_saved = False
@@ -1123,7 +1156,10 @@ class DigitisationMainWindow(QMainWindow):
         self._faulty_warning_timer.timeout.connect(self._hide_faulty_warning)
 
         pid = getattr(controller, "participant_id", "") or ""
-        title = f"OPM Digitisation — subject: {pid}" if pid else "OPM Digitisation GUI"
+        if self._read_only:
+            title = "OPM Digitisation — Viewer"
+        else:
+            title = f"OPM Digitisation — subject: {pid}" if pid else "OPM Digitisation GUI"
         self.setWindowTitle(title)
         self.resize(1400, 850)
 
@@ -1131,14 +1167,15 @@ class DigitisationMainWindow(QMainWindow):
         self._autosave_timer = QTimer(self)
         self._autosave_timer.setInterval(5000)  # 5 seconds
         self._autosave_timer.timeout.connect(self._auto_save_session)
-        self._autosave_timer.start()
+        if not self._read_only:
+            self._autosave_timer.start()
 
         self._build_ui()
         # Only start fresh if no points exist (not restored session)
-        if len(self.controller.digitised_points) == 0:
+        if not self._read_only and len(self.controller.digitised_points) == 0:
             self.controller.start()
         self.refresh_ui()
-        if not self.controller.is_finished and not self._dev_mode:
+        if not self._read_only and not self.controller.is_finished and not self._dev_mode:
             self._auto_capture_timer.start()
 
 
@@ -1149,7 +1186,14 @@ class DigitisationMainWindow(QMainWindow):
         root = QVBoxLayout()
         central.setLayout(root)
 
-        if self._dev_mode:
+        if self._read_only:
+            banner = QLabel("VIEW MODE - loaded data (read-only)")
+            banner.setStyleSheet(
+                "background-color: #3f5870; color: white; padding: 10px; font-weight: bold; font-size: 14px;"
+            )
+            banner.setAlignment(Qt.AlignCenter)
+            root.addWidget(banner)
+        elif self._dev_mode:
             banner = QLabel("DEV MODE - Simulated FASTRAK Hardware (No Physical Device)")
             banner.setStyleSheet("background-color: #ff4444; color: white; padding: 10px; font-weight: bold; font-size: 14px;")
             banner.setAlignment(Qt.AlignCenter)
@@ -1331,33 +1375,11 @@ class DigitisationMainWindow(QMainWindow):
             }
         """
         
-        # Button row 1: Undo | Restart
+        # Button row 1: Undo | Delete
         btn_row1 = QHBoxLayout()
         self.undo_btn = QPushButton("Undo")
         self.undo_btn.setFixedSize(80, 80)
         self.undo_btn.setStyleSheet(button_style)
-        self.restart_btn = QPushButton("Restart")
-        self.restart_btn.setFixedSize(80, 80)
-        self.restart_btn.setStyleSheet(button_style)
-        btn_row1.addWidget(self.undo_btn)
-        btn_row1.addWidget(self.restart_btn)
-        right_panel.addLayout(btn_row1)
-        
-        # Button row 2: Save CSV | Finish
-        btn_row2 = QHBoxLayout()
-        self.save_csv_btn = QPushButton("Save\nCSV")
-        self.save_csv_btn.setFixedSize(80, 80)
-        self.save_csv_btn.setStyleSheet(button_style)
-        self.finish_btn = QPushButton("Finish")
-        self.finish_btn.setFixedSize(80, 80)
-        self.finish_btn.setStyleSheet(button_style)
-        btn_row2.addWidget(self.save_csv_btn)
-        btn_row2.addWidget(self.finish_btn)
-        right_panel.addLayout(btn_row2)
-        
-        # Delete button (for continuous points) - RED - centered
-        delete_row = QHBoxLayout()
-        delete_row.addStretch(1)
         self.delete_btn = QPushButton("Delete\nPoint")
         self.delete_btn.setFixedSize(80, 80)
         self.delete_btn.setStyleSheet("""
@@ -1382,12 +1404,32 @@ class DigitisationMainWindow(QMainWindow):
             }
         """)
         self.delete_btn.setEnabled(False)
-        delete_row.addWidget(self.delete_btn)
-        delete_row.addStretch(1)
-        right_panel.addLayout(delete_row)
+        btn_row1.addWidget(self.undo_btn)
+        btn_row1.addWidget(self.delete_btn)
+        right_panel.addLayout(btn_row1)
+        
+        # Button row 2: Restart | Finish
+        btn_row2 = QHBoxLayout()
+        self.restart_btn = QPushButton("Restart")
+        self.restart_btn.setFixedSize(80, 80)
+        self.restart_btn.setStyleSheet(button_style)
+        self.finish_btn = QPushButton("Finish")
+        self.finish_btn.setFixedSize(80, 80)
+        self.finish_btn.setStyleSheet(button_style)
+        btn_row2.addWidget(self.restart_btn)
+        btn_row2.addWidget(self.finish_btn)
+        right_panel.addLayout(btn_row2)
+
+        # Button row 3: Save
+        btn_row3 = QHBoxLayout()
+        self.save_btn = QPushButton("Save")
+        self.save_btn.setFixedSize(160, 80)
+        self.save_btn.setStyleSheet(button_style)
+        btn_row3.addWidget(self.save_btn)
+        right_panel.addLayout(btn_row3)
         
         # Dev mode buttons
-        if self._dev_mode:
+        if self._dev_mode and not self._read_only:
             right_panel.addSpacing(10)
             dev_row = QHBoxLayout()
             self.dev_add_btn = QPushButton("Add\nPoint")
@@ -1415,7 +1457,10 @@ class DigitisationMainWindow(QMainWindow):
         # Connect signals
         self.undo_btn.clicked.connect(self.on_undo)
         self.restart_btn.clicked.connect(self.on_restart)
-        self.save_csv_btn.clicked.connect(self.on_save_csv)
+        if self._read_only:
+            self.save_btn.clicked.connect(self._on_save_csv_only)
+        else:
+            self.save_btn.clicked.connect(self.on_save)
         self.finish_btn.clicked.connect(self.close)
         self.delete_btn.clicked.connect(self.on_delete_point)
         self.zoom_slider.valueChanged.connect(self.on_zoom_changed)
@@ -1423,9 +1468,16 @@ class DigitisationMainWindow(QMainWindow):
         self.reset_view_btn.clicked.connect(self.on_reset_view)
         self.table.itemSelectionChanged.connect(self.on_table_selection_changed)
 
-        if self._dev_mode:
+        if self._dev_mode and not self._read_only:
             self.dev_add_btn.clicked.connect(self.on_dev_add_point)
             self.dev_faulty_btn.clicked.connect(self.on_dev_add_faulty_point)
+
+        if self._read_only:
+            self.undo_btn.setEnabled(False)
+            self.restart_btn.setEnabled(False)
+            self.delete_btn.setEnabled(False)
+            self.save_btn.setText("Export CSV")
+            self.finish_btn.hide()
 
         # Enable point picking in plotter
         self.plotter.enable_point_picking(callback=self.on_plot_point_picked, show_message=False)
@@ -1738,10 +1790,40 @@ class DigitisationMainWindow(QMainWindow):
     def on_undo(self):
         self.controller.undo()
         self.refresh_ui()
-        if not self.controller.is_finished and not self._dev_mode and not self._auto_capture_timer.isActive():
+        if not self._read_only and not self.controller.is_finished and not self._dev_mode and not self._auto_capture_timer.isActive():
             self._auto_capture_timer.start()
 
-    def on_save_csv(self):
+    def on_save(self):
+        pid = getattr(self.controller, "participant_id", "") or "digitisation"
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        default_name = f"digitisation_sub-{pid}_{timestamp}.json"
+        dig = _load_dig_settings()
+        output_dir = Path(dig.get("output_dir", "output")).resolve()
+        project = getattr(self.controller, "project", "") or ""
+        if project:
+            output_dir = output_dir / project
+        path, selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Save digitisation",
+            str(output_dir / default_name),
+            "Pylhemus JSON (*.json);;CSV (*.csv)",
+        )
+        if not path:
+            return
+
+        output_path = Path(path)
+        try:
+            if selected_filter.startswith("CSV") or output_path.suffix.lower() == ".csv":
+                self.controller.save_csv(output_path)
+            else:
+                self.controller.save_dig_json(output_path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Save Failed", str(exc))
+            return
+
+        self._session_saved = True
+
+    def _on_save_csv_only(self):
         pid = getattr(self.controller, "participant_id", "") or "digitisation"
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         default_name = f"digitisation_sub-{pid}_{timestamp}.csv"
@@ -1754,8 +1836,20 @@ class DigitisationMainWindow(QMainWindow):
                                               str(output_dir / default_name), "CSV (*.csv)")
         if not path:
             return
-        self.controller.save_csv(Path(path))
+
+        try:
+            self.controller.save_csv(Path(path))
+        except Exception as exc:
+            QMessageBox.critical(self, "Save Failed", str(exc))
+            return
+
         self._session_saved = True
+
+    def _restore_running_timers(self):
+        if not self._read_only:
+            self._autosave_timer.start()
+        if not self._read_only and not self.controller.is_finished and not self._dev_mode:
+            self._auto_capture_timer.start()
 
     def _auto_save_session(self):
         """Auto-save session every 5 seconds to temp file."""
@@ -1782,18 +1876,22 @@ class DigitisationMainWindow(QMainWindow):
         if self._autosave_timer.isActive():
             self._autosave_timer.stop()
 
-        if not self._session_saved and len(self.controller.digitised_points) > 0:
+        if not self._read_only and not self._session_saved and len(self.controller.digitised_points) > 0:
             reply = QMessageBox.question(
                 self, "Save Digitisation?",
                 "You have unsaved data. Save before closing?",
                 QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel
             )
             if reply == QMessageBox.Yes:
-                self.on_save_csv()
-                self._session_saved = True
+                self.on_save()
+                if not self._session_saved:
+                    self._restore_running_timers()
+                    event.ignore()
+                    return
             elif reply == QMessageBox.No:
                 self._session_saved = True  # Mark as "handled" so no auto-save
             elif reply == QMessageBox.Cancel:
+                self._restore_running_timers()
                 event.ignore()
                 return
 
@@ -1894,6 +1992,9 @@ class DigitisationMainWindow(QMainWindow):
         if selected:
             self._selected_row = selected[0].row()
             self._highlight_point_in_plot(self._selected_row)
+            if self._read_only:
+                self.delete_btn.setEnabled(False)
+                return
             
             # Enable delete button only for continuous points
             df = self.controller.digitised_points

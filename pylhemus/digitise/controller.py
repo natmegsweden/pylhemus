@@ -72,6 +72,7 @@ class DigitisationController:
     def __init__(self, connector: Any, digitisation_scheme: list[dict] | None = None):
         self.connector = connector
         self.debug_serial = os.getenv("PYLHEMUS_DEBUG_SERIAL", "").lower() in {"1", "true", "yes", "on"}
+        self.auto_swap_cardinals: bool = False
         self.scheme: list[SchemeItem] = []
         self.digitised_points = pd.DataFrame(columns=["category", "label", "x", "y", "z"])
         self.current_scheme_idx = 0
@@ -246,9 +247,50 @@ class DigitisationController:
         )
         self.digitised_points = pd.concat([self.digitised_points, new_data], ignore_index=True)
 
+        if item.category == "fiducials" and item.dig_type == "single":
+            self._maybe_auto_swap_cardinals()
+
         self.current_label_idx += 1
         self._advance_if_needed()
         self.update_neuromag_transform()
+
+    def _maybe_auto_swap_cardinals(self):
+        if not self.auto_swap_cardinals:
+            return
+
+        fiducial_indices = self.digitised_points.index[self.digitised_points["category"] == "fiducials"].tolist()
+        if len(fiducial_indices) != 3:
+            return
+
+        coords = self.digitised_points.loc[fiducial_indices, ["x", "y", "z"]].astype(float).to_numpy()
+        ordered_indices = self._infer_cardinal_order(coords)
+        desired_labels = ["lpa", "nasion", "rpa"]
+        reordered_labels = [desired_labels[ordered_indices.index(i)] for i in range(3)]
+        current_labels = self.digitised_points.loc[fiducial_indices, "label"].astype(str).tolist()
+
+        if current_labels == reordered_labels:
+            return
+
+        if self.debug_serial:
+            print(f"[CARDINAL AUTO-SWAP] {current_labels} -> {reordered_labels}")
+
+        self.digitised_points.loc[fiducial_indices, "label"] = reordered_labels
+
+    @staticmethod
+    def _infer_cardinal_order(coords: np.ndarray) -> list[int]:
+        if coords.shape != (3, 3):
+            raise ValueError("Cardinal auto-swap requires exactly three 3D fiducial points.")
+
+        pair_distances: list[tuple[float, tuple[int, int]]] = []
+        for i in range(3):
+            for j in range(i + 1, 3):
+                distance = float(np.linalg.norm(coords[i] - coords[j]))
+                pair_distances.append((distance, (i, j)))
+
+        _, lr_pair = max(pair_distances, key=lambda item: item[0])
+        nasion_idx = next(index for index in range(3) if index not in lr_pair)
+        left_idx, right_idx = sorted(lr_pair, key=lambda index: coords[index, 1], reverse=True)
+        return [left_idx, nasion_idx, right_idx]
 
     def next_target(self):
         if self.current_item is None:
@@ -340,6 +382,12 @@ class DigitisationController:
             df["z_t"] = z_t_list
 
         df.to_csv(output_path, index=False)
+
+    def save_dig_json(self, output_path: Path):
+        from ..read_data import write_dig_json
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        write_dig_json(output_path, self.digitised_points, self)
 
     def save_session_with_transform(self, output_path: Path):
         """Save session including transformed points for full restore."""

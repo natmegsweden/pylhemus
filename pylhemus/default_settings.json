@@ -2,6 +2,8 @@
   "digitisation": {
     "_comment": "Admin-only settings. Change these only if you know what you are doing.",
     "capture_interval_ms": 100,
+    "auto_swap_cardinals": true,
+    "hemisphere": [0, 0, 1],
     "output_dir": "output",
     "point_sounds": {
       "single": "sounds/click.wav",

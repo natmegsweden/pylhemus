@@ -165,3 +165,5 @@ output/*
 .DS_store
 extra/*
 .kilo
+dacq
+data

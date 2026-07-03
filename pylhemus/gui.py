@@ -11,6 +11,36 @@ from .digitise.pyvista_gui import LaunchDialog, setup_dark_theme
 from .settings_loader import load_settings
 
 
+def _parse_fastrak_hemisphere(dig_settings: dict) -> tuple[float, float, float] | None:
+    hemisphere = dig_settings.get("hemisphere", [0.0, 0.0, 1.0])
+    if hemisphere is None:
+        return None
+    if not isinstance(hemisphere, (list, tuple)) or len(hemisphere) != 3:
+        raise ValueError("digitisation.hemisphere must be a 3-value list or tuple.")
+
+    values = tuple(float(value) for value in hemisphere)
+    if values == (0.0, 0.0, 0.0):
+        raise ValueError("digitisation.hemisphere must not be the zero vector.")
+    return values
+
+
+def _parse_auto_swap_cardinals(dig_settings: dict) -> bool:
+    return bool(dig_settings.get("auto_swap_cardinals", True))
+
+
+def _open_viewer(app: QApplication, df, participant_id: str) -> int:
+    from .digitise import DevModeConnector
+
+    controller = DigitisationController(connector=DevModeConnector())
+    controller.digitised_points = df.copy()
+    controller.participant_id = participant_id
+    controller.update_neuromag_transform(force=True)
+
+    window = DigitisationMainWindow(controller=controller, dev_mode=False, read_only=True)
+    window.show()
+    return app.exec_()
+
+
 def launch_gui(
     settings_path: Path | None = None,
     serial_port: str | None = None,
@@ -63,11 +93,15 @@ def launch_gui(
         launch = LaunchDialog()
         if launch.exec_() != QDialog.Accepted:
             return 0
+        if launch.loaded_data is not None and launch.loaded_data_path is not None:
+            return _open_viewer(app, launch.loaded_data, launch.loaded_data_path.stem)
         participant_id = launch.participant_id
         project = launch.project
         schema_items = launch.selected_schema()
 
     com_port = serial_port or settings.get("serial_port", "COM1")
+    hemisphere = _parse_fastrak_hemisphere(dig_settings)
+    auto_swap_cardinals = _parse_auto_swap_cardinals(dig_settings)
     configured_output_dir = output_dir or dig_settings.get("output_dir", "output")
     output_path = Path(configured_output_dir)
     if not output_path.is_absolute():
@@ -79,7 +113,7 @@ def launch_gui(
     connector = None
     if not dev_mode:
         try:
-            connector = FastrakConnector(usb_port=com_port)
+            connector = FastrakConnector(usb_port=com_port, hemisphere=hemisphere)
             connector.prepare_for_digitisation()
         except Exception as exc:
             QMessageBox.information(
@@ -97,6 +131,7 @@ def launch_gui(
         dev_mode = True
 
     controller = DigitisationController(connector=connector)
+    controller.auto_swap_cardinals = auto_swap_cardinals
     controller.participant_id = participant_id
     controller.project = project
     for item in schema_items:
@@ -123,8 +158,8 @@ def launch_gui(
 
     # Only auto-save if user hasn't explicitly declined to save
     if not window._session_saved and len(controller.digitised_points) > 0:
-        csv_path = output_path / f"digitisation_sub-{participant_id}.csv"
-        controller.save_csv(csv_path)
-        print(f"Saved: {csv_path}")
+        json_path = output_path / f"digitisation_sub-{participant_id}.json"
+        controller.save_dig_json(json_path)
+        print(f"Saved: {json_path}")
 
     return exit_code
