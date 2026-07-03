@@ -34,9 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Dump FASTRAK settings to JSON",
         description="Read and dump FASTRAK device settings via serial connection"
     )
-    settings_parser.add_argument("--port", required=True, help="Serial port (e.g., COM3 or /dev/ttyUSB0)")
+    settings_parser.add_argument("--port", default="COM1", help="Serial port (e.g., COM3 or /dev/ttyUSB0)")
     settings_parser.add_argument("--baud", type=int, default=9600, help="Baud rate (default: 9600)")
-    settings_parser.add_argument("--out", required=True, type=Path, help="Output JSON file path")
     settings_parser.add_argument("--timeout", type=float, default=1.0, help="Serial read timeout in seconds (default: 1.0)")
     settings_parser.set_defaults(handler=_handle_read_settings)
 
@@ -77,8 +76,6 @@ def _handle_read_settings(args: argparse.Namespace) -> int:
         args.port,
         "--baud",
         str(args.baud),
-        "--out",
-        str(args.out),
         "--timeout",
         str(args.timeout),
     ]

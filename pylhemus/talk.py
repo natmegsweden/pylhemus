@@ -15,7 +15,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="pylhemus talk",
         description="Friendly FASTRAK command interface.",
     )
-    parser.add_argument("--port", required=True, help="Serial port (for example COM3 or /dev/ttyUSB0)")
+    parser.add_argument("--port", default="COM1", help="Serial port (for example COM3 or /dev/ttyUSB0)")
     parser.add_argument("--baud", type=int, default=9600, help="Baud rate (default: 9600)")
     parser.add_argument("--timeout", type=float, default=1.0, help="Serial read timeout in seconds")
     parser.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON output")

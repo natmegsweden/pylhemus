@@ -6,17 +6,15 @@ import re
 import sys
 import time
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Sequence
 
 import serial
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Read FASTRAK settings and print or save JSON.")
+    parser = argparse.ArgumentParser(description="Read FASTRAK settings and print JSON.")
     parser.add_argument("--port", required=True, help="Serial port (e.g., COM3 or /dev/ttyUSB0)")
     parser.add_argument("--baud", type=int, default=9600, help="Baud rate (default: 9600)")
-    parser.add_argument("--out", type=Path, help="Optional output JSON file path")
     parser.add_argument("--timeout", type=float, default=1.0, help="Serial read timeout (s)")
     return parser
 
@@ -57,13 +55,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 data["stations"][str(index)] = {"station": index, "active": False}
 
-        json_text = json.dumps(data, indent=2)
-        if args.out is not None:
-            args.out.parent.mkdir(parents=True, exist_ok=True)
-            args.out.write_text(json_text, encoding="utf-8")
-            print(f"Saved settings to {args.out}")
-        else:
-            print(json_text)
+        print(json.dumps(data, indent=2))
         return 0
     finally:
         try:

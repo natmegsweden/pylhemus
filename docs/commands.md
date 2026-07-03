@@ -47,7 +47,6 @@ Supported options:
 
 - `--port <port>` required serial port
 - `--baud <int>` baud rate, default `9600`
-- `--out <path>` optional output JSON path; if omitted, JSON is printed to stdout
 - `--timeout <seconds>` serial read timeout, default `1.0`
 
 ## `pylhemus talk`
