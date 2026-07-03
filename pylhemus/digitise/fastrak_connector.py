@@ -240,13 +240,12 @@ class FastrakConnector:
 
     def prepare_for_digitisation(self):
         self.startup_warnings = []
-        self.set_factory_software_defaults()
+        #self.set_factory_software_defaults()
         self.clear_old_data()
         self.metal_compensation()
         self.query_n_receivers()
         self.set_metric()
         self.set_hemisphere()
-        self.clear_old_data()
         return list(self.startup_warnings)
 
     def get_position_relative_to_head_receiver(self):
