@@ -27,19 +27,19 @@ def neuromag_transform_general(LPA, NAS, RPA):
     NAS = np.asarray(NAS, float)
     RPA = np.asarray(RPA, float)
 
-    # 1. Y-axis from LPA → RPA
-    y = RPA - LPA
-    y = y / np.linalg.norm(y)
+    # 1. X-axis from LPA → RPA
+    x = LPA - RPA
+    x = x / np.linalg.norm(x)
 
     # 2. Project NAS onto Y-axis to find the true origin O
     #    O = LPA + ( (NAS-LPA)·y ) * y
     vec = NAS - LPA
-    proj_length = np.dot(vec, y)
-    origin = LPA + proj_length * y
+    proj_length = np.dot(vec, x)
+    origin = LPA + proj_length * x
 
-    # 3. X-axis is the direction from origin to NAS
-    x = NAS - origin
-    x = x / np.linalg.norm(x)
+    # 3. Y-axis is the direction from origin to NAS
+    y = NAS - origin
+    y = y / np.linalg.norm(y)
 
     # 4. Z-axis by right-hand rule
     z = np.cross(x, y)
