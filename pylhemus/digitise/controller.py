@@ -28,7 +28,7 @@ def neuromag_transform_general(LPA, NAS, RPA):
     RPA = np.asarray(RPA, float)
 
     # 1. X-axis from LPA → RPA
-    x = LPA - RPA
+    x = RPA - LPA
     x = x / np.linalg.norm(x)
 
     # 2. Project NAS onto Y-axis to find the true origin O
