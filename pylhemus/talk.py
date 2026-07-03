@@ -61,6 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     stream_parser.add_argument("--duration", type=float, default=0.0, help="Seconds to stream (0 = until interrupted)")
     stream_parser.add_argument("--max-lines", type=int, default=0, help="Stop after this many received lines (0 = unlimited)")
     stream_parser.add_argument("--parsed", action="store_true", help="Emit one JSON object per received line")
+    stream_parser.add_argument("--continuous", "--continous", action="store_true", help="Enable continuous FASTRAK output mode (send C)")
     stream_parser.add_argument("--metric", action="store_true", help="Set centimeters before starting the stream")
     stream_parser.add_argument("--no-prepare", action="store_true", help="Skip ^S / c / F before starting the stream")
     stream_parser.set_defaults(handler=_handle_stream)
@@ -233,8 +234,9 @@ def _handle_stream(args: argparse.Namespace, ser) -> dict[str, Any]:
         read_settings.send_cmd(ser, "u", tries=1, read_timeout=0.3)
 
     ser.reset_input_buffer()
-    ser.write(b"C\r")
-    ser.flush()
+    if args.continuous:
+        ser.write(b"C\r")
+        ser.flush()
 
     start_time = time.time()
     deadline = start_time + args.duration if args.duration and args.duration > 0 else None
@@ -253,8 +255,9 @@ def _handle_stream(args: argparse.Namespace, ser) -> dict[str, Any]:
             raw = ser.readline()
             if not raw:
                 if not idle_notice_shown and first_line_at is None and time.time() - start_time >= max(args.timeout * 2.0, 2.0):
+                    mode_hint = "continuous output is off, so try clicking the pen" if not args.continuous else "check continuous output, active stations, and pen clicks"
                     print(
-                        "No FASTRAK sample lines received yet; check continuous output, active stations, and pen clicks.",
+                        f"No FASTRAK sample lines received yet; {mode_hint}.",
                         file=sys.stderr,
                     )
                     idle_notice_shown = True
@@ -285,10 +288,11 @@ def _handle_stream(args: argparse.Namespace, ser) -> dict[str, Any]:
     except KeyboardInterrupt:
         interrupted = True
     finally:
-        try:
-            read_settings.send_cmd(ser, "c", tries=1, read_timeout=0.2)
-        except Exception:
-            pass
+        if args.continuous:
+            try:
+                read_settings.send_cmd(ser, "c", tries=1, read_timeout=0.2)
+            except Exception:
+                pass
 
     return {
         "streaming_started": total_lines > 0,

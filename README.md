@@ -48,6 +48,7 @@ pylhemus read-settings >> settings.json
 pylhemus stream --metric
 pylhemus stream --parsed --max-lines 20
 pylhemus stream --max-lines 20
+pylhemus stream --continuous --max-lines 20
 
 # Friendly FASTRAK command interface
 pylhemus talk status

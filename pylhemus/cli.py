@@ -61,6 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     stream_parser.add_argument("--duration", type=float, default=0.0, help="Seconds to stream (0 = until interrupted)")
     stream_parser.add_argument("--max-lines", type=int, default=0, help="Stop after this many received lines (0 = unlimited)")
     stream_parser.add_argument("--parsed", action="store_true", help="Emit one JSON object per received line")
+    stream_parser.add_argument("--continuous", "--continous", action="store_true", help="Enable continuous FASTRAK output mode (send C)")
     stream_parser.add_argument("--metric", action="store_true", help="Set centimeters before starting the stream")
     stream_parser.add_argument("--no-prepare", action="store_true", help="Skip ^S / c / F before starting the stream")
     stream_parser.set_defaults(handler=_handle_stream)
@@ -120,7 +121,12 @@ def _handle_stream(args: argparse.Namespace) -> int:
     connector.serialobj.timeout = args.timeout
 
     try:
-        startup_warnings = connector.prepare_for_digitisation()
+        startup_warnings = []
+        if args.no_prepare:
+            connector.clear_old_data()
+            connector.query_n_receivers()
+        else:
+            startup_warnings = connector.prepare_for_digitisation()
         if startup_warnings:
             for warning in startup_warnings:
                 print(f"[FASTRAK WARNING] {warning}", file=sys.stderr)
@@ -129,7 +135,8 @@ def _handle_stream(args: argparse.Namespace) -> int:
             connector.send_serial_command(b"u", read_timeout=0.2 if connector.debug_serial else 0.0)
 
         connector.clear_old_data()
-        connector.send_serial_command(b"C\r")
+        if args.continuous:
+            connector.send_serial_command(b"C\r", read_timeout=0.2)
 
         start_time = time.time()
         deadline = start_time + args.duration if args.duration and args.duration > 0 else None
@@ -144,8 +151,9 @@ def _handle_stream(args: argparse.Namespace) -> int:
             raw = connector.serialobj.readline()
             if not raw:
                 if not idle_notice_shown and first_line_at is None and time.time() - start_time >= max(args.timeout * 2.0, 2.0):
+                    mode_hint = "continuous output is off, so try clicking the pen" if not args.continuous else "check active stations and pen activity"
                     print(
-                        "[FASTRAK STREAM] No sample lines received yet; check active stations and pen activity.",
+                        f"[FASTRAK STREAM] No sample lines received yet; {mode_hint}.",
                         file=sys.stderr,
                     )
                     idle_notice_shown = True
@@ -171,10 +179,11 @@ def _handle_stream(args: argparse.Namespace) -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        try:
-            connector.send_serial_command(b"c\r")
-        except Exception:
-            pass
+        if args.continuous:
+            try:
+                connector.send_serial_command(b"c\r")
+            except Exception:
+                pass
         try:
             connector.serialobj.close()
         except Exception:

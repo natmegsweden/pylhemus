@@ -85,6 +85,7 @@ This command uses the same startup/settings path as the GUI, including
 pylhemus stream --port COM3 --metric
 pylhemus stream --port COM3 --parsed --max-lines 20
 pylhemus stream --port COM3 --max-lines 20
+pylhemus stream --port COM3 --continuous --max-lines 20
 ```
 
 Supported options:
@@ -95,6 +96,7 @@ Supported options:
 - `--duration <seconds>` stream for a fixed duration; `0` means until interrupted
 - `--max-lines <int>` stop after this many received lines; `0` means unlimited
 - `--parsed` emit one JSON object per received line
+- `--continuous`, `--continous` enable continuous output mode by sending `C`
 - `--metric` set centimeters before starting the stream
 - `--no-prepare` skip `^S / c / F` before starting the stream
 
