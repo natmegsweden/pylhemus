@@ -1618,6 +1618,10 @@ class DigitisationMainWindow(QMainWindow):
         if basis is None:
             return None
 
+        up_reference = self._reset_view_up_reference()
+        if float(np.dot(basis["superior"], up_reference)) < 0.0:
+            basis["superior"] = -basis["superior"]
+
         point_radius = max(np.max(np.linalg.norm(coords - basis["origin"], axis=1)), 1.0)
         focal_point = basis["origin"] + (0.18 * point_radius) * basis["anterior"] + (0.05 * point_radius) * basis["superior"]
         direction = (-0.42 * basis["right"]) + (1.35 * basis["anterior"]) + (0.72 * basis["superior"])
@@ -1636,6 +1640,21 @@ class DigitisationMainWindow(QMainWindow):
             "view_up": view_up,
             "source": str(basis["source"]),
         }
+
+    def _reset_view_up_reference(self) -> np.ndarray:
+        if self._show_transformed and self.controller.has_valid_neuromag_transform():
+            return np.array([0.0, 0.0, 1.0], dtype=float)
+
+        if self._camera_initialized:
+            try:
+                view_up = np.asarray(self.plotter.camera.GetViewUp(), dtype=float)
+                norm = np.linalg.norm(view_up)
+                if norm > 1e-9:
+                    return view_up / norm
+            except Exception:
+                pass
+
+        return np.array([0.0, 0.0, 1.0], dtype=float)
 
     def _estimate_cardinal_basis(self, points: np.ndarray) -> dict[str, np.ndarray | str] | None:
         if points.shape != (3, 3):
