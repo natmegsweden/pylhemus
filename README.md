@@ -1,6 +1,6 @@
 # pylhemus
 
-`pylhemus` is a GUI workflow for Polhemus FASTRAK digitisation. It captures fiducials, HPI coils, and head-shape points, then exports the recorded coordinates to CSV.
+`pylhemus` is a GUI workflow for Polhemus FASTRAK digitisation. It captures fiducials, HPI coils, and head-shape points, then saves them by default as an exported digitisation JSON format with optional CSV export.
 
 Original code by [Laura B Paulsen](https://github.com/laurabpaulsen/OPM_lab).
 
@@ -80,7 +80,7 @@ python -m pylhemus settings
 2. Enter a participant ID and choose a schema preset.
 3. Capture the fiducials in order: LPA, Nasion, RPA.
 4. Continue with HPI coils and head-shape points.
-5. Save the session to CSV or finish the session from the GUI.
+5. Save the digitisation from the GUI. The default save format is an exported dig JSON, with optional CSV export.
 
 After all three fiducials are present, the GUI computes the Neuromag transform automatically and shows transformed coordinates alongside the raw coordinates.
 
@@ -94,7 +94,7 @@ After all three fiducials are present, the GUI computes the Neuromag transform a
 ### Right side
 
 - Current category, target, and capture progress
-- `Undo`, `Restart`, `Save CSV`, and `Finish` controls
+- `Undo`, `Restart`, `Save`, and `Finish` controls
 - `Delete Point` for selected continuous head-shape points
 
 ### Table and plot
@@ -147,10 +147,21 @@ See `docs/settings.md` for dialog details, screenshot walkthroughs, and headless
 
 ## Output
 
+The main **Save** action writes a `pylhemus-dig/1` JSON file by default and also offers CSV export from the same save dialog.
+
+That JSON file is a rich digitisation format designed to be closer to FIF/MNE dig data:
+
+- a `dig` array with per-point `kind`, `ident`, coordinate frame, and coordinates in meters
+- `pylhemus_category` and `pylhemus_label` annotations for round-tripping back into `pylhemus`
+- `dev_head_t` when a valid Neuromag transform is available
+- subject metadata such as participant ID and project
+
 CSV exports contain both raw and transformed coordinates when the fiducial transform is valid:
 
 - `x`, `y`, `z`: raw FASTRAK coordinates
 - `x_t`, `y_t`, `z_t`: transformed Neuromag coordinates
+
+Autosave and `--restore-last` use a separate internal JSON session format that stores GUI workflow state such as schema items, current indices, and restore metadata.
 
 ## Documentation
 

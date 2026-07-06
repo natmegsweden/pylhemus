@@ -69,11 +69,24 @@ Duplicate protection applies to single-capture categories such as fiducials and 
 
 ## Saving and restoring
 
-- CSV output is written to the configured output directory.
+- The main **Save** action writes a `pylhemus-dig/1` JSON export by default and also allows CSV export.
+- Saved files are written to the configured output directory.
 - Autosave runs periodically in the system temporary directory.
 - `pylhemus gui --restore-last` resumes the most recent autosaved session.
 
-The exported CSV contains:
+The default saved JSON file is an exported digitisation format, not the internal autosave/session format. It is intentionally more elaborate and closer to FIF dig data, including:
+
+- a top-level `format` marker (`pylhemus-dig/1`)
+- subject metadata
+- a `dig` list with FIF-like point fields such as `kind`, `ident`, `coord_frame`, and `r`
+- `pylhemus_category` and `pylhemus_label` fields for round-tripping in `pylhemus`
+- `dev_head_t` when a valid Neuromag transform is available
+
+Coordinates in the exported JSON are stored in meters, matching the FIF-style convention.
+
+By contrast, autosave and `--restore-last` use a separate internal JSON session format that stores schema state, current indices, and other restore metadata needed to resume an unfinished session.
+
+CSV exports contain:
 
 - `participant_id`
 - `category`

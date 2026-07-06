@@ -20,7 +20,7 @@ Supported options:
 
 - `--settings <path>` to load an explicit settings JSON file
 - `--port <port>` to override the configured serial port
-- `--output-dir <path>` to override the CSV output directory
+- `--output-dir <path>` to override the save/export output directory
 - `--dev-mode` to use simulated FASTRAK hardware
 - `--restore-last` to resume the latest autosaved session
 

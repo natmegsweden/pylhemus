@@ -12,7 +12,7 @@ The usual capture order is:
 2. HPI coils
 3. Head-shape points
 
-Once the three fiducials are present, `pylhemus` computes the Neuromag transform and adds transformed coordinates to the table and CSV output.
+Once the three fiducials are present, `pylhemus` computes the Neuromag transform and adds transformed coordinates to the table, exported dig JSON files, and CSV exports.
 
 ## Related Pages
 
