@@ -31,7 +31,8 @@ pylhemus gui
 ## Main Capabilities
 
 - Interactive GUI for digitisation sessions
+- Standalone settings dialog with tabbed configuration pages
 - Automatic Neuromag transform once fiducials are captured
 - Autosave and restore-last workflow
 - Development mode without FASTRAK hardware
-- CLI utilities for reading and querying FASTRAK settings
+- CLI utilities for reading, applying, and querying FASTRAK settings

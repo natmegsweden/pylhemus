@@ -66,9 +66,6 @@ The GUI provides:
 - point deletion for selected continuous points
 
 Duplicate protection applies to single-capture categories such as fiducials and HPI coils.
-By default, the first three fiducials are auto-swapped to `lpa`, `nasion`, and
-`rpa` using the old Neuromag-style assumption that nasion is the front-most
-point and LPA/RPA are separated primarily along the sensor-frame `y` axis.
 
 ## Saving and restoring
 
@@ -117,8 +114,8 @@ For project-specific overrides in the current working directory, use `pylhemus.s
 Dump a JSON summary:
 
 ```bash
-pylhemus read-settings
-pylhemus read-settings >> plh_settings.json
+pylhemus settings --dump
+pylhemus settings --dump --out plh_settings.json
 ```
 
 Query the device interactively:

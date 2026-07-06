@@ -40,9 +40,20 @@ pylhemus gui --output-dir output
 pylhemus gui --dev-mode
 pylhemus gui --restore-last
 
-# Read FASTRAK settings
-pylhemus read-settings
-pylhemus read-settings >> settings.json
+# Open the settings dialog
+pylhemus settings
+
+# Read FASTRAK settings from a live device
+pylhemus settings --dump
+pylhemus settings --dump --out settings.json
+
+# Apply previously saved device settings
+pylhemus settings --apply --from settings.json
+
+# Update user settings without connecting to a device
+pylhemus settings --set-units inch
+pylhemus settings --set-metal-compensation off
+pylhemus settings --set-factory-defaults off
 
 # Stream FASTRAK sample lines without the GUI
 pylhemus stream --metric
@@ -54,13 +65,13 @@ pylhemus stream --continuous --max-lines 20
 pylhemus talk status
 pylhemus talk receivers
 pylhemus talk station --id 1
-pylhemus talk dump-settings --out settings.json
-pylhemus talk apply-settings --from settings.json
 pylhemus talk set-units cm
+pylhemus talk prepare
 pylhemus talk send-raw S
 
 # Run without installing
 python -m pylhemus gui
+python -m pylhemus settings
 ```
 
 ## Typical Workflow
@@ -101,22 +112,23 @@ After all three fiducials are present, the GUI computes the Neuromag transform a
 
 ## Command-Line Tools
 
-`pylhemus` provides three entry points:
+`pylhemus` provides four top-level commands:
 
 - `pylhemus gui` for the main digitisation workflow
-- `pylhemus read-settings` for dumping FASTRAK settings to JSON
+- `pylhemus settings` for the settings dialog and headless settings read/write tasks
 - `pylhemus stream` for raw FASTRAK streaming without the GUI
 - `pylhemus talk` for readable FASTRAK inspection and control commands
 
 Examples:
 
 ```bash
-pylhemus read-settings
-pylhemus read-settings >> settings.json
+pylhemus settings
+pylhemus settings --dump --out settings.json
+pylhemus settings --apply --from settings.json
+pylhemus settings --set-units inch
 pylhemus talk status
 pylhemus talk receivers
 pylhemus talk station --id 1
-pylhemus talk dump-settings --out settings.json
 pylhemus talk set-units cm
 pylhemus talk prepare
 pylhemus talk send-raw S
@@ -131,7 +143,7 @@ Settings are loaded in layers, from lowest to highest priority:
 3. Project settings in `pylhemus.settings.json` in the current working directory
 4. Explicit `--settings` passed to `pylhemus gui`
 
-See `docs/settings.md` for details.
+See `docs/settings.md` for dialog details, screenshot walkthroughs, and headless settings commands.
 
 ## Output
 

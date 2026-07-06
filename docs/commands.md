@@ -1,6 +1,6 @@
 # Commands
 
-`pylhemus` provides three command-line entry points.
+`pylhemus` provides four top-level commands.
 
 ## Command references
 
@@ -34,20 +34,43 @@ pylhemus gui --dev-mode
 pylhemus gui --restore-last
 ```
 
-## `pylhemus read-settings`
+## `pylhemus settings`
 
-Read the current FASTRAK configuration and print it as JSON.
+Open the standalone settings dialog, dump live FASTRAK settings, apply a saved
+device snapshot, or update the user settings file without opening the GUI.
 
 ```bash
-pylhemus read-settings
-pylhemus read-settings >> settings.json
+pylhemus settings
+pylhemus settings --dump
+pylhemus settings --dump --out settings.json
+pylhemus settings --apply --from settings.json
+pylhemus settings --set-units inch
+pylhemus settings --set-metal-compensation off
+pylhemus settings --set-factory-defaults off
 ```
 
-Supported options:
+Modes:
 
-- `--port <port>` required serial port
-- `--baud <int>` baud rate, default `9600`
+- no flags: open the settings dialog
+- `--dump`: query the live FASTRAK device and print JSON
+- `--apply --from <file>`: replay settings from a previous dump
+- `--set-units cm|inch`: write `digitisation.units` in the user settings file
+- `--set-metal-compensation on|off`: write `digitisation.metal_compensation`
+- `--set-factory-defaults on|off`: write `digitisation.set_factory_software_defaults`
+
+Device options for `--dump` and `--apply`:
+
+- `--port <port>` serial port; defaults to the configured settings value
+- `--baud <int>` baud rate; defaults to the configured settings value
 - `--timeout <seconds>` serial read timeout, default `1.0`
+- `--out <file>` write `--dump` JSON to a file instead of stdout
+- `--from <file>` input JSON for `--apply`
+
+Notes:
+
+- `--dump` and `--apply` require a serial connection.
+- `--set-*` options only modify the user settings file and do not contact the device.
+- `--dump`, `--apply`, and `--set-*` modes cannot be combined.
 
 ## `pylhemus talk`
 
@@ -59,9 +82,9 @@ Example commands:
 pylhemus talk status
 pylhemus talk receivers
 pylhemus talk station --id 1
-pylhemus talk dump-settings --out settings.json
 pylhemus talk set-units cm
 pylhemus talk prepare
+pylhemus talk stream --parsed --max-lines 20
 pylhemus talk send-raw S
 ```
 
@@ -70,10 +93,17 @@ Supported subcommands:
 - `status` reads system status and configuration
 - `receivers` shows active stations
 - `station --id <1-4>` reads one station configuration
-- `dump-settings` writes a combined JSON summary
 - `set-units cm|in` changes the active measurement units
 - `prepare` runs the basic prepare sequence
+- `stream` streams sample lines through the `talk` interface
 - `send-raw <command>` sends a raw FASTRAK command
+
+Talk-wide options:
+
+- `--port <port>` serial port, default `COM1`
+- `--baud <int>` baud rate, default `9600`
+- `--timeout <seconds>` serial timeout, default `1.0`
+- `--json` prints structured JSON output when available
 
 ## `pylhemus stream`
 
@@ -90,7 +120,7 @@ pylhemus stream --port COM3 --continuous --max-lines 20
 
 Supported options:
 
-- `--port <port>` serial port, default `COM1`
+- `--port <port>` serial port; defaults to the configured settings value, then `COM1`
 - `--baud <int>` baud rate, default `9600`
 - `--timeout <seconds>` serial read timeout, default `1.0`
 - `--duration <seconds>` stream for a fixed duration; `0` means until interrupted
@@ -99,10 +129,3 @@ Supported options:
 - `--continuous`, `--continous` enable continuous output mode by sending `C`
 - `--metric` set centimeters before starting the stream
 - `--no-prepare` skip `^S / c / F` before starting the stream
-
-Global options:
-
-- `--port <port>` required serial port
-- `--baud <int>` baud rate, default `9600`
-- `--timeout <seconds>` serial timeout, default `1.0`
-- `--json` prints structured JSON output when available

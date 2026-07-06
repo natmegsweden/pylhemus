@@ -3,8 +3,9 @@
 This document is a cleaned implementation-facing command summary derived from
 FASTRAK_User_Manual_OPM00PI002-G.pdf and current `pylhemus` behavior.
 
-Use this as an operator and development reference for `pylhemus talk`
-commands. For normative command definitions, rely on the vendor PDF.
+Use this as an operator and development reference for `pylhemus talk` and the
+serial-device modes of `pylhemus settings`. For normative command definitions,
+rely on the vendor PDF.
 
 ## Serial baseline
 
@@ -18,13 +19,17 @@ commands. For normative command definitions, rely on the vendor PDF.
 - `pylhemus talk --port <PORT> status`: reads `S`, `X`, `y`, `v`, and `x`.
 - `pylhemus talk --port <PORT> receivers`: reads `l1`.
 - `pylhemus talk --port <PORT> station --id <1-4>`: reads `Hn`, `An`, `Gn`, `In`, `On`, `Vn`, `Qn`, `rn`, `Nn`.
-- `pylhemus talk --port <PORT> dump-settings`: full settings snapshot using the above command families.
-- `pylhemus talk --port <PORT> apply-settings --from <file.json>`: replays restorable settings from a previous dump.
 - `pylhemus talk --port <PORT> set-units cm|in`: sends `u` or `U`.
 - `pylhemus talk --port <PORT> prepare`: sends `W`, then `u`, then checks `l1`.
+- `pylhemus talk --port <PORT> stream`: reads streaming sample lines.
 - `pylhemus talk --port <PORT> send-raw <cmd>`: sends one raw command as-is (supports `^S` style control notation).
 
-## `pylhemus talk` command mapping
+## `pylhemus settings` serial quick index
+
+- `pylhemus settings --dump [--out <file.json>] [--port <PORT>]`: full settings snapshot using the same status and station query families.
+- `pylhemus settings --apply --from <file.json> [--port <PORT>]`: replays restorable settings from a previous dump.
+
+## Command mapping
 
 - `pylhemus talk --port <PORT> status`
   - Sends: `S`, `X`, `y`, filter queries `v` and `x`.
@@ -38,15 +43,14 @@ commands. For normative command definitions, rely on the vendor PDF.
   - Sends: `Hn`, `An`, `Gn`, `In`, `On`, `Vn`, `Qn`, `rn`, `Nn`.
   - Purpose: read per-station configuration and envelopes.
 
-- `pylhemus talk --port <PORT> dump-settings [--out file.json]`
+- `pylhemus settings --dump [--out file.json] [--port <PORT>]`
   - Sends: all status + active stations + station commands for active stations.
   - Purpose: one-shot settings snapshot.
-  - Output: enriched JSON with parsed values plus restore metadata such as `system.toggles`, `sync_mode_annotated`, filter `*_cmd` fields, and per-station `*_cmd` fields.
+  - Output: JSON with the parsed system block, active-station state, and per-station settings for active stations.
 
-- `pylhemus talk --port <PORT> apply-settings --from file.json`
+- `pylhemus settings --apply --from file.json [--port <PORT>]`
   - Sends: restorable commands extracted from a previous dump.
-  - Restore order: system toggles, sync mode, filters, then per-station settings for active target stations only.
-  - Output: restore report with one entry per attempted command and `accepted|rejected|no_response` outcome.
+  - Output: restore report from `read_settings.apply_settings()`.
 
 - `pylhemus talk --port <PORT> set-units cm|in`
   - Sends: `u` (metric) or `U` (english/inches).
@@ -55,6 +59,10 @@ commands. For normative command definitions, rely on the vendor PDF.
 - `pylhemus talk --port <PORT> prepare`
   - Sends: `W`, `u`, then `l1`.
   - Purpose: reset to defaults, switch to metric, verify active stations.
+
+- `pylhemus talk --port <PORT> stream`
+  - Sends: `^S`, `c`, `F` unless `--no-prepare` is used; optionally `u` for `--metric`; optionally `C` for `--continuous`.
+  - Purpose: stream live sample lines while keeping the interface in a readable ASCII mode.
 
 - `pylhemus talk --port <PORT> send-raw <cmd>`
   - Sends: the raw command text exactly (supports caret notation like `^S`).
@@ -114,10 +122,9 @@ commands. For normative command definitions, rely on the vendor PDF.
 ## Notes for operators
 
 - Commands marked with `*` in the vendor manual are not persisted to EEPROM.
-- `dump-settings` and `read-settings` now emit restore-ready JSON fields alongside the parsed values. The added `*_cmd` fields contain the exact FASTRAK command text needed to restore that value.
-- `apply-settings` skips null restore fields and skips per-station commands for stations that are inactive on the target device.
-- `apply-settings` does not send `W` (reset defaults) or `^K` (save to EEPROM) automatically.
-- If you need persistence after `apply-settings`, send `pylhemus talk --port <PORT> send-raw ^K` manually after verifying the restore report.
+- `pylhemus settings --dump` writes a snapshot that can be replayed with `pylhemus settings --apply`.
+- `pylhemus settings --apply` does not send `W` (reset defaults) or `^K` (save to EEPROM) automatically.
+- If you need persistence after `pylhemus settings --apply`, send `pylhemus talk --port <PORT> send-raw ^K` manually after verifying the restore report.
 - Use `send-raw` for features not wrapped by friendly subcommands.
 - FASTRAK uses `*` as an in-line field terminator in some replies. `send-raw` now splits those fields into separate response entries automatically.
 - `send-raw` always reports `diagnostics.outcome` as one of `accepted`, `rejected`, or `no_response`.
@@ -131,10 +138,10 @@ commands. For normative command definitions, rely on the vendor PDF.
 
 ```bash
 # Create a restore-ready JSON snapshot
-pylhemus talk --port COM1 dump-settings --out settings.json
+pylhemus settings --dump --port COM1 --out settings.json
 
 # Replay the saved settings to a device
-pylhemus talk --port COM1 apply-settings --from settings.json
+pylhemus settings --apply --port COM1 --from settings.json
 
 # Optionally persist the live configuration to EEPROM
 pylhemus talk --port COM1 send-raw ^K

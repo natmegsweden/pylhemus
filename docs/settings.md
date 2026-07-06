@@ -41,6 +41,47 @@ The dialog edits the user settings file only:
 
 Project overrides in `pylhemus.settings.json` still apply when you launch the main GUI, so the dialog is best used for machine-local defaults.
 
+## Headless settings commands
+
+`pylhemus settings` also provides non-GUI modes for reading and writing settings.
+
+### Dump live FASTRAK settings
+
+```bash
+pylhemus settings --dump
+pylhemus settings --dump --out settings.json
+```
+
+`--dump` queries the connected FASTRAK device over serial and prints JSON to stdout or to `--out`.
+
+### Apply a saved FASTRAK settings snapshot
+
+```bash
+pylhemus settings --apply --from settings.json
+```
+
+`--apply` restores device settings from a previous `--dump` file.
+
+### Update user settings without opening the dialog
+
+```bash
+pylhemus settings --set-units inch
+pylhemus settings --set-metal-compensation off
+pylhemus settings --set-factory-defaults off
+```
+
+These options write directly to the user settings file and do not require a serial connection.
+
+### Serial defaults for headless device operations
+
+For `--dump` and `--apply`, the serial settings come from the layered configuration unless you override them on the command line:
+
+- `--port <port>`
+- `--baud <int>`
+- `--timeout <seconds>`
+
+`--dump`, `--apply`, and `--set-*` modes are mutually exclusive.
+
 ### General tab
 
 Use the **General** tab to set the default output directory for saved digitisation sessions.
