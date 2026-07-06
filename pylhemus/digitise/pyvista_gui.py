@@ -10,6 +10,7 @@ import pandas as pd
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
     QMainWindow,
     QWidget,
     QFrame,
@@ -35,7 +36,9 @@ from PyQt5.QtWidgets import (
     QPlainTextEdit,
     QScrollArea,
     QSizePolicy,
+    QDoubleSpinBox,
     QSpinBox,
+    QTabWidget,
     QToolButton,
 )
 from PyQt5.QtCore import QTimer, Qt, QUrl
@@ -45,7 +48,7 @@ from pyvistaqt import QtInteractor
 
 from .controller import DigitisationController
 from ..read_data import read_file
-from ..settings_loader import load_settings
+from ..settings_loader import load_settings, load_user_effective_settings
 from ..template.registry import list_templates, create_template
 
 
@@ -595,8 +598,8 @@ class SettingsDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Settings")
-        self.setMinimumSize(560, 600)
+        self.setWindowTitle("Pylhemus Settings")
+        self.setMinimumSize(600, 520)
 
         from ..settings_loader import (
             ensure_user_settings_file,
@@ -606,7 +609,7 @@ class SettingsDialog(QDialog):
 
         ensure_user_settings_file()
 
-        merged = load_settings()
+        merged = load_user_effective_settings()
         user = load_user_settings()
 
         self._user_settings_path = user_settings_path()
@@ -620,20 +623,14 @@ class SettingsDialog(QDialog):
         self._user_presets: dict = user_dig.get("schema_presets", {})
         self._presets: dict = {**self._default_presets, **self._user_presets}
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        inner = QWidget()
-        scroll.setWidget(inner)
-        root = QVBoxLayout(inner)
-        root.setSpacing(12)
-
-        root.addWidget(self._build_general_section(merged, user))
-        root.addWidget(self._build_schema_section())
-        root.addWidget(self._build_advanced_section(merged, user))
-        root.addStretch(1)
+        tabs = QTabWidget()
+        tabs.addTab(self._build_general_tab(merged, user), "General")
+        tabs.addTab(self._build_schema_tab(), "Schema Presets")
+        tabs.addTab(self._build_gui_tab(merged), "GUI")
+        tabs.addTab(self._build_advanced_tab(merged), "Advanced")
 
         outer = QVBoxLayout(self)
-        outer.addWidget(scroll)
+        outer.addWidget(tabs)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._on_accept)
@@ -654,18 +651,13 @@ class SettingsDialog(QDialog):
         self._load_preset_into_list()
         self._sync_default_preset_combo()
 
-    def _build_general_section(self, merged: dict, user: dict) -> QGroupBox:
+    def _build_general_tab(self, merged: dict, user: dict) -> QWidget:
         del user
-        box = QGroupBox("General")
-        form = QFormLayout(box)
-
-        self.serial_port_edit = QLineEdit(merged.get("serial_port", "COM1"))
-        form.addRow("Serial port:", self.serial_port_edit)
-
-        self.serial_baud_spin = QSpinBox()
-        self.serial_baud_spin.setRange(300, 115200)
-        self.serial_baud_spin.setValue(int(merged.get("serial_baud", 9600)))
-        form.addRow("Baud rate:", self.serial_baud_spin)
+        page = QWidget()
+        outer = QVBoxLayout(page)
+        form = QFormLayout()
+        outer.addLayout(form)
+        outer.addStretch(1)
 
         output_row = QHBoxLayout()
         self.output_dir_edit = QLineEdit(
@@ -680,23 +672,26 @@ class SettingsDialog(QDialog):
         output_widget.setLayout(output_row)
         form.addRow("Output directory:", output_widget)
 
+        return page
+
+    def _build_schema_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        dig = self._merged.get("digitisation", {})
+
+        default_row = QHBoxLayout()
+        default_row.addWidget(QLabel("Default preset:"))
         self.default_preset_combo = QComboBox()
-        presets = merged.get("digitisation", {}).get("schema_presets", {})
-        for name in presets:
+        for name in self._presets:
             self.default_preset_combo.addItem(name)
-        current_default = merged.get("digitisation", {}).get(
-            "default_schema_preset", ""
-        )
+        current_default = dig.get("default_schema_preset", "")
         idx = self.default_preset_combo.findText(current_default)
         if idx >= 0:
             self.default_preset_combo.setCurrentIndex(idx)
-        form.addRow("Default preset:", self.default_preset_combo)
+        default_row.addWidget(self.default_preset_combo, stretch=1)
+        layout.addLayout(default_row)
 
-        return box
-
-    def _build_schema_section(self) -> QGroupBox:
-        box = QGroupBox("Schema Presets")
-        layout = QVBoxLayout(box)
+        layout.addSpacing(8)
 
         preset_row = QHBoxLayout()
         preset_row.addWidget(QLabel("Preset:"))
@@ -730,33 +725,15 @@ class SettingsDialog(QDialog):
         save_row.addWidget(self.save_preset_btn)
         layout.addLayout(save_row)
 
-        return box
+        return page
 
-    def _build_advanced_section(self, merged: dict, user: dict) -> QWidget:
-        del user
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        toggle_btn = QPushButton("Advanced  \u25b6")
-        toggle_btn.setCheckable(True)
-        toggle_btn.setChecked(False)
-        toggle_btn.setFlat(True)
-        toggle_btn.setStyleSheet("text-align: left;")
-        layout.addWidget(toggle_btn)
-
-        inner = QGroupBox()
-        inner.setVisible(False)
-        form = QFormLayout(inner)
-        layout.addWidget(inner)
-
+    def _build_gui_tab(self, merged: dict) -> QWidget:
         dig = merged.get("digitisation", {})
-
-        self.capture_interval_spin = QSpinBox()
-        self.capture_interval_spin.setRange(10, 5000)
-        self.capture_interval_spin.setSuffix(" ms")
-        self.capture_interval_spin.setValue(int(dig.get("capture_interval_ms", 100)))
-        form.addRow("Capture interval:", self.capture_interval_spin)
+        page = QWidget()
+        outer = QVBoxLayout(page)
+        form = QFormLayout()
+        outer.addLayout(form)
+        outer.addStretch(1)
 
         sounds = dig.get("point_sounds", {})
         self._sound_edits: dict[str, QLineEdit] = {}
@@ -784,13 +761,71 @@ class SettingsDialog(QDialog):
             self._color_btns[cat] = btn
             form.addRow(f"Colour ({cat}):", btn)
 
-        def _toggle_advanced(checked: bool):
-            toggle_btn.setText("Advanced  \u25bc" if checked else "Advanced  \u25b6")
-            inner.setVisible(checked)
+        return page
 
-        toggle_btn.toggled.connect(_toggle_advanced)
+    def _build_advanced_tab(self, merged: dict) -> QWidget:
+        dig = merged.get("digitisation", {})
+        page = QWidget()
 
-        return container
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        inner = QWidget()
+        scroll.setWidget(inner)
+        form = QFormLayout(inner)
+
+        self.serial_port_edit = QLineEdit(merged.get("serial_port", "COM1"))
+        form.addRow("Serial port:", self.serial_port_edit)
+
+        self.serial_baud_spin = QSpinBox()
+        self.serial_baud_spin.setRange(300, 115200)
+        self.serial_baud_spin.setValue(int(merged.get("serial_baud", 9600)))
+        form.addRow("Baud rate:", self.serial_baud_spin)
+
+        self.units_combo = QComboBox()
+        self.units_combo.addItems(["cm", "inch"])
+        self.units_combo.setCurrentText(str(dig.get("units", "cm")))
+        form.addRow("Units:", self.units_combo)
+
+        self.metal_comp_check = QCheckBox()
+        self.metal_comp_check.setChecked(bool(dig.get("metal_compensation", True)))
+        form.addRow("Metal compensation:", self.metal_comp_check)
+
+        self.factory_defaults_check = QCheckBox()
+        self.factory_defaults_check.setChecked(
+            bool(dig.get("set_factory_software_defaults", True))
+        )
+        form.addRow("Factory defaults on start:", self.factory_defaults_check)
+
+        hemisphere = dig.get("hemisphere", [0.0, 0.0, 1.0])
+        if not isinstance(hemisphere, (list, tuple)) or len(hemisphere) != 3:
+            hemisphere = [0.0, 0.0, 1.0]
+        hemisphere_row = QHBoxLayout()
+        self.hemisphere_x_spin = QDoubleSpinBox()
+        self.hemisphere_y_spin = QDoubleSpinBox()
+        self.hemisphere_z_spin = QDoubleSpinBox()
+        for spin, value in zip(
+            (self.hemisphere_x_spin, self.hemisphere_y_spin, self.hemisphere_z_spin),
+            hemisphere,
+        ):
+            spin.setRange(-1.0, 1.0)
+            spin.setSingleStep(0.1)
+            spin.setDecimals(2)
+            spin.setValue(float(value))
+            hemisphere_row.addWidget(spin)
+        hemisphere_widget = QWidget()
+        hemisphere_widget.setLayout(hemisphere_row)
+        form.addRow("Hemisphere X/Y/Z:", hemisphere_widget)
+
+        self.capture_interval_spin = QSpinBox()
+        self.capture_interval_spin.setRange(10, 5000)
+        self.capture_interval_spin.setSuffix(" ms")
+        self.capture_interval_spin.setValue(int(dig.get("capture_interval_ms", 100)))
+        form.addRow("Capture interval:", self.capture_interval_spin)
+
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
+        return page
 
     def _browse_sound(self, edit: QLineEdit):
         path, _ = QFileDialog.getOpenFileName(
@@ -843,7 +878,7 @@ class SettingsDialog(QDialog):
             if name in self._default_presets and name not in self._user_presets:
                 label = f"{name} (default)"
             self.preset_combo.addItem(label, name)
-        default = load_settings().get("digitisation", {}).get("default_schema_preset", "")
+        default = self._merged.get("digitisation", {}).get("default_schema_preset", "")
         target = current or default
         idx = self.preset_combo.findData(target)
         self.preset_combo.setCurrentIndex(max(idx, 0))
@@ -953,24 +988,90 @@ class SettingsDialog(QDialog):
             json.dumps(user_settings, indent=2, ensure_ascii=False), encoding="utf-8"
         )
 
-    def _on_accept(self):
-        from ..settings_loader import load_user_settings
-
-        user = load_user_settings()
-
+    def _build_user_settings_payload(self, current_user: dict) -> dict:
+        user = json.loads(json.dumps(current_user))
+        hemisphere = [
+            self.hemisphere_x_spin.value(),
+            self.hemisphere_y_spin.value(),
+            self.hemisphere_z_spin.value(),
+        ]
+        user.setdefault("digitisation", {})
         user["serial_port"] = self.serial_port_edit.text().strip()
         user["serial_baud"] = self.serial_baud_spin.value()
-        user.setdefault("digitisation", {})
-        user["digitisation"]["output_dir"] = self.output_dir_edit.text().strip()
         user["digitisation"]["default_schema_preset"] = (
             self.default_preset_combo.currentText()
         )
+        user["digitisation"]["units"] = self.units_combo.currentText()
+        user["digitisation"]["metal_compensation"] = (
+            self.metal_comp_check.isChecked()
+        )
+        user["digitisation"]["set_factory_software_defaults"] = (
+            self.factory_defaults_check.isChecked()
+        )
+        user["digitisation"]["hemisphere"] = hemisphere
+        user["digitisation"]["output_dir"] = self.output_dir_edit.text().strip()
         user["digitisation"]["schema_presets"] = self._user_presets
         user["digitisation"]["capture_interval_ms"] = self.capture_interval_spin.value()
         user["digitisation"]["point_sounds"] = {
             key: edit.text() for key, edit in self._sound_edits.items()
         }
         user["digitisation"]["category_colors"] = dict(self._color_edits)
+        return user
+
+    def _collect_changed_paths(
+        self, before, after, prefix: str = ""
+    ) -> list[str]:
+        if before == after:
+            return []
+
+        if isinstance(before, dict) and isinstance(after, dict):
+            changed: list[str] = []
+            keys = sorted(set(before) | set(after))
+            for key in keys:
+                path = f"{prefix}.{key}" if prefix else str(key)
+                if key not in before or key not in after:
+                    changed.append(path)
+                    continue
+                changed.extend(self._collect_changed_paths(before[key], after[key], path))
+            return changed
+
+        return [prefix or "settings"]
+
+    def _on_accept(self):
+        from ..settings_loader import load_user_settings
+
+        hemisphere = [
+            self.hemisphere_x_spin.value(),
+            self.hemisphere_y_spin.value(),
+            self.hemisphere_z_spin.value(),
+        ]
+        if hemisphere == [0.0, 0.0, 0.0]:
+            QMessageBox.warning(
+                self,
+                "Invalid Hemisphere",
+                "Hemisphere must not be the zero vector.",
+            )
+            return
+
+        current_user = load_user_settings()
+        user = self._build_user_settings_payload(current_user)
+        changed_paths = self._collect_changed_paths(current_user, user)
+
+        if changed_paths:
+            preview = changed_paths[:12]
+            summary = "\n".join(f"• {path}" for path in preview)
+            remaining = len(changed_paths) - len(preview)
+            if remaining > 0:
+                summary += f"\n• … and {remaining} more"
+            reply = QMessageBox.question(
+                self,
+                "Confirm Changes",
+                "Save these settings changes?\n\n" + summary,
+                QMessageBox.Ok | QMessageBox.Cancel,
+                QMessageBox.Ok,
+            )
+            if reply != QMessageBox.Ok:
+                return
 
         self._user_settings_path.parent.mkdir(parents=True, exist_ok=True)
         self._user_settings_path.write_text(
@@ -1025,16 +1126,13 @@ class LaunchDialog(QDialog):
         self.load_data_btn = QPushButton("Load Data...")
         self.load_data_btn.clicked.connect(self._on_load_data)
         btn_row.addWidget(self.load_data_btn)
-        settings_btn = QPushButton("Settings...")
-        settings_btn.clicked.connect(self._open_settings)
-        btn_row.addWidget(settings_btn)
         btn_row.addStretch(1)
         ok_btn = QPushButton("OK")
         ok_btn.setDefault(True)
         cancel_btn = QPushButton("Cancel")
         ok_btn.clicked.connect(self._on_accept)
         cancel_btn.clicked.connect(self.reject)
-        for _btn in (self.load_data_btn, settings_btn, cancel_btn, ok_btn):
+        for _btn in (self.load_data_btn, cancel_btn, ok_btn):
             _btn.setMinimumHeight(DIALOG_BTN_HEIGHT)
         btn_row.addWidget(cancel_btn)
         btn_row.addWidget(ok_btn)
@@ -1102,28 +1200,6 @@ class LaunchDialog(QDialog):
                     QMessageBox.warning(self, "Validation Error", f"Category '{item['category']}' requires labels or a template.")
                     return False
         return True
-
-    def _open_settings(self):
-        dlg = SettingsDialog(parent=self)
-        if dlg.exec_() == QDialog.Accepted:
-            self._reload_settings()
-
-    def _reload_settings(self):
-        dig = _load_dig_settings()
-        self._presets = dig.get("schema_presets", {})
-        self._default_preset = dig.get("default_schema_preset", "")
-
-        current = self.schema_combo.currentText()
-        self.schema_combo.blockSignals(True)
-        self.schema_combo.clear()
-        for name in self._presets:
-            self.schema_combo.addItem(name)
-        target = current if current in self._presets else self._default_preset
-        idx = self.schema_combo.findText(target)
-        if idx >= 0:
-            self.schema_combo.setCurrentIndex(idx)
-        self.schema_combo.blockSignals(False)
-
 
 # ---------------------------------------------------------------------------
 # Main digitisation window

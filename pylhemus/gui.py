@@ -7,7 +7,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox
 
 from .digitise import FastrakConnector, DigitisationController, DigitisationMainWindow
-from .digitise.pyvista_gui import LaunchDialog, setup_dark_theme
+from .digitise.pyvista_gui import LaunchDialog, SettingsDialog, setup_dark_theme
 from .settings_loader import load_settings
 
 
@@ -96,7 +96,11 @@ def launch_gui(
         schema_items = launch.selected_schema()
 
     com_port = serial_port or settings.get("serial_port", "COM1")
+    baud_rate = settings.get("serial_baud", 9600)
     hemisphere = _parse_fastrak_hemisphere(dig_settings)
+    units = dig_settings.get("units", "cm")
+    metal_compensation = dig_settings.get("metal_compensation", True)
+    set_factory_defaults = dig_settings.get("set_factory_software_defaults", True)
     configured_output_dir = output_dir or dig_settings.get("output_dir", "output")
     output_path = Path(configured_output_dir)
     if not output_path.is_absolute():
@@ -108,7 +112,14 @@ def launch_gui(
     connector = None
     if not dev_mode:
         try:
-            connector = FastrakConnector(usb_port=com_port, hemisphere=hemisphere)
+            connector = FastrakConnector(
+                usb_port=com_port,
+                hemisphere=hemisphere,
+                baud_rate=baud_rate,
+                units=units,
+                metal_compensation=metal_compensation,
+                set_factory_defaults=set_factory_defaults,
+            )
             startup_warnings = connector.prepare_for_digitisation()
             if startup_warnings:
                 QMessageBox.warning(
@@ -164,3 +175,14 @@ def launch_gui(
         print(f"Saved: {json_path}")
 
     return exit_code
+
+
+def launch_settings(settings_path: Path | None = None) -> int:
+    del settings_path
+
+    app = QApplication.instance() or QApplication(sys.argv)
+    setup_dark_theme(app)
+
+    dialog = SettingsDialog()
+    dialog.exec_()
+    return 0

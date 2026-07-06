@@ -2,6 +2,9 @@
   "digitisation": {
     "_comment": "Admin-only settings. Change these only if you know what you are doing.",
     "capture_interval_ms": 100,
+    "set_factory_software_defaults": true,
+    "metal_compensation": true,
+    "units": "cm",
     "hemisphere": [0, 0, 1],
     "output_dir": "output",
     "point_sounds": {

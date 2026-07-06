@@ -87,6 +87,20 @@ def load_settings() -> dict:
     return _deep_merge(defaults, user, project)
 
 
+def load_user_effective_settings() -> dict:
+    """Load non-project pylhemus settings.
+
+    Order: defaults -> user
+    """
+
+    _migrate_legacy_user_settings()
+
+    defaults = _load_json_if_exists(PACKAGE_DEFAULTS)
+    user = _load_json_if_exists(USER_SETTINGS)
+
+    return _deep_merge(defaults, user)
+
+
 def user_settings_path() -> Path:
     """Return path to the user settings file."""
     return USER_SETTINGS

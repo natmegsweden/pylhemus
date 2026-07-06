@@ -5,7 +5,6 @@ import json
 import re
 import sys
 import time
-from pathlib import Path
 from typing import Any, Sequence
 
 from . import read_settings
@@ -32,23 +31,6 @@ def build_parser() -> argparse.ArgumentParser:
     station_parser = subparsers.add_parser("station", help="Read a specific station configuration")
     station_parser.add_argument("--id", required=True, type=int, choices=[1, 2, 3, 4], help="Station index (1-4)")
     station_parser.set_defaults(handler=_handle_station)
-
-    dump_parser = subparsers.add_parser("dump-settings", help="Dump full settings summary")
-    dump_parser.add_argument("--out", type=Path, help="Optional output JSON file path")
-    dump_parser.set_defaults(handler=_handle_dump_settings)
-
-    apply_parser = subparsers.add_parser(
-        "apply-settings",
-        help="Restore settings to device from a previously-saved JSON file",
-    )
-    apply_parser.add_argument(
-        "--from",
-        dest="from_file",
-        required=True,
-        type=Path,
-        help="Path to settings JSON file (produced by dump-settings)",
-    )
-    apply_parser.set_defaults(handler=_handle_apply_settings)
 
     set_units_parser = subparsers.add_parser("set-units", help="Set conversion units")
     set_units_parser.add_argument("units", choices=["cm", "in"], help="Target units")
@@ -146,39 +128,6 @@ def _handle_station(args: argparse.Namespace, ser) -> dict[str, Any]:
     read_settings.ensure_ascii_and_quiet(ser)
     station_data = read_settings.query_station(ser, args.id)
     return {"station": station_data}
-
-
-def _handle_dump_settings(args: argparse.Namespace, ser) -> dict[str, Any]:
-    read_settings.ensure_ascii_and_quiet(ser)
-
-    data: dict[str, Any] = {
-        "serial_port": args.port,
-        "serial_baud": args.baud,
-        "system": read_settings.query_system(ser),
-    }
-
-    active, l_raw = read_settings.query_active_stations(ser)
-    data["stations_active_raw"] = l_raw
-    data["stations_active"] = active
-
-    stations: dict[str, Any] = {}
-    for index in range(1, 5):
-        if active[index - 1]:
-            stations[str(index)] = read_settings.query_station(ser, index)
-        else:
-            stations[str(index)] = {"station": index, "active": False}
-    data["stations"] = stations
-
-    if args.out is not None:
-        args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(json.dumps(data, indent=2), encoding="utf-8")
-
-    return data
-
-
-def _handle_apply_settings(args: argparse.Namespace, ser) -> dict[str, Any]:
-    data = json.loads(args.from_file.read_text(encoding="utf-8"))
-    return read_settings.apply_settings(ser, data)
 
 
 def _handle_set_units(args: argparse.Namespace, ser) -> dict[str, Any]:

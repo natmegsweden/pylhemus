@@ -13,6 +13,10 @@ class FastrakConnector:
         head_reference:int=1,
         data_length:int=47,
         hemisphere=(0.0, 0.0, 1.0),
+        baud_rate:int=9600,
+        units:str="cm",
+        metal_compensation:bool=True,
+        set_factory_defaults:bool=True,
     ):
         """
         A class to interface with the Polhemus FASTRAK system.
@@ -22,12 +26,16 @@ class FastrakConnector:
             stylus_receiver (int): The receiver port number for the stylus (default is 0).
             head_reference (int): The receiver port number for the head reference (default is 1).
             data_length (int): The expected length of data for each receiver reading.
+            baud_rate (int): Serial baud rate (default is 9600).
+            units (str): Output units, either "cm" (metric) or "inch" (imperial). Default is "cm".
+            metal_compensation (bool): Enable metal compensation on startup (default is True).
+            set_factory_defaults (bool): Reset device to factory software defaults on startup (default is True).
 
         Methods:
             n_receivers(): Queries the number of active receivers.
             set_factory_software_defaults(): Resets the device to factory defaults.
             clear_old_data(): Clears outdated data from the serial buffer.
-            set_metric(): Switches to metric output and re-sends identity alignment.
+            set_units(): Configures the device output units based on the units setting.
             prepare_for_digitisation(): Prepares the device for digitisation use.
             get_position_relative_to_head_receiver(): Computes the position from the stylus relative to the head receiver.
         """
@@ -38,11 +46,14 @@ class FastrakConnector:
         self.debug_serial = os.getenv("PYLHEMUS_DEBUG_SERIAL", "").lower() in {"1", "true", "yes", "on"}
         self.hemisphere = self._normalize_hemisphere(hemisphere)
         self.startup_warnings: list[str] = []
+        self.units = units.lower() if units else "cm"
+        self.metal_compensation_enabled = metal_compensation
+        self.set_factory_defaults_enabled = set_factory_defaults
 
         # initialize serial object
         self.serialobj = serial.Serial(
             port=usb_port,  # Port name (adjust as necessary)
-            baudrate=9600,  # Baud rate
+            baudrate=baud_rate,  # Baud rate
             stopbits=serial.STOPBITS_ONE,  # Stop bits (1 stop bit)
             parity=serial.PARITY_NONE,  # No parity
             bytesize=serial.EIGHTBITS,  # 8 data bits
@@ -197,20 +208,6 @@ class FastrakConnector:
         while self.serialobj.in_waiting > 0:
             self.serialobj.read(self.serialobj.in_waiting)
 
-    def set_metric(self):
-        """Switch to centimetres and re-send identity alignment in cm.
-
-        Send `U` first to establish a known inch baseline so the FASTRAK
-        rescales any inch-defined envelopes before switching back to `u`.
-        """
-        self.send_serial_command(b"U")
-        self.send_serial_command(b"u")
-
-        for station in range(1, self.n_receivers + 1):
-            cmd = self._format_station_write("A", station, [0, 0, 0, 200, 0, 0, 0, 200, 0])
-            lines = self.send_serial_command(cmd, read_timeout=0.2)
-            self._record_write_result(label="alignment", station=station, lines=lines)
-
     def set_hemisphere(self):
         if self.hemisphere is None:
             return
@@ -238,13 +235,53 @@ class FastrakConnector:
     def metal_compensation(self):
         self.send_serial_command(b"D")  # send 'D' command to set metal compensation on
 
+    def set_units(self):
+        """Configure the device output units based on self.units.
+
+        When units is "cm" (metric): sends `U` (inch baseline) then `u` (switch to cm)
+        so the FASTRAK rescales any inch-defined envelopes before switching to metric.
+        When units is "inch": sends only `U` to put the device in imperial mode.
+
+        The identity alignment matrix extents are scaled to match the active unit:
+        200 cm (~79 inches) for metric, or 79 inches for imperial.
+        """
+        if self.units == "cm":
+            self.send_serial_command(b"U")
+            self.send_serial_command(b"u")
+            alignment_extent = 200  # cm
+        elif self.units == "inch":
+            self.send_serial_command(b"U")
+            alignment_extent = 78.74  # inches (~200 cm)
+        else:
+            self._add_startup_warning(
+                f"Unrecognised units value '{self.units}'; falling back to metric (cm)."
+            )
+            self.send_serial_command(b"U")
+            self.send_serial_command(b"u")
+            alignment_extent = 200
+
+        for station in range(1, self.n_receivers + 1):
+            cmd = self._format_station_write(
+                "A", station,
+                [0, 0, 0, alignment_extent, 0, 0, 0, alignment_extent, 0],
+            )
+            lines = self.send_serial_command(cmd, read_timeout=0.2)
+            self._record_write_result(label="alignment", station=station, lines=lines)
+
+    # Keep legacy name as an alias for backward compatibility.
+    def set_metric(self):
+        """Deprecated alias for set_units(). Use set_units() instead."""
+        self.set_units()
+
     def prepare_for_digitisation(self):
         self.startup_warnings = []
-        self.set_factory_software_defaults()
+        if self.set_factory_defaults_enabled:
+            self.set_factory_software_defaults()
         self.clear_old_data()
-        self.metal_compensation()
+        if self.metal_compensation_enabled:
+            self.metal_compensation()
         self.query_n_receivers()
-        self.set_metric()
+        self.set_units()
         self.set_hemisphere()
         self.clear_old_data()
         return list(self.startup_warnings)

@@ -7,7 +7,6 @@ import time
 from pathlib import Path
 from typing import Sequence
 
-from . import read_settings
 from . import talk
 from .digitise.fastrak_connector import FastrakConnector
 from .settings_loader import load_settings
@@ -32,15 +31,46 @@ def build_parser() -> argparse.ArgumentParser:
     gui_parser.add_argument("--restore-last", action="store_true", help="Restore from last auto-saved session (skips setup dialog)")
     gui_parser.set_defaults(handler=_handle_gui)
 
-    settings_parser = subparsers.add_parser(
-        "read-settings",
-        help="Dump FASTRAK settings to JSON",
-        description="Read and dump FASTRAK device settings via serial connection"
+    settings_gui_parser = subparsers.add_parser(
+        "settings",
+        help="Open settings dialog or read/write settings headlessly",
+        description=(
+            "Without flags: open the Pylhemus settings GUI dialog.\n"
+            "With --dump or --apply: communicate with the FASTRAK device over serial.\n"
+            "With --set-*: write values directly to the user settings file."
+        ),
     )
-    settings_parser.add_argument("--port", default="COM1", help="Serial port (e.g., COM3 or /dev/ttyUSB0)")
-    settings_parser.add_argument("--baud", type=int, default=9600, help="Baud rate (default: 9600)")
-    settings_parser.add_argument("--timeout", type=float, default=1.0, help="Serial read timeout in seconds (default: 1.0)")
-    settings_parser.set_defaults(handler=_handle_read_settings)
+    settings_gui_parser.add_argument("--settings", type=Path, help="Path to the settings JSON file (unused, reserved)")
+
+    device_group = settings_gui_parser.add_argument_group("Device settings (require serial connection)")
+    device_group.add_argument("--dump", action="store_true", help="Query FASTRAK device and dump settings JSON")
+    device_group.add_argument("--out", type=Path, help="Write --dump output to FILE instead of stdout")
+    device_group.add_argument("--apply", action="store_true", help="Restore device settings from --from FILE")
+    device_group.add_argument("--from", dest="from_file", type=Path, help="Settings JSON file for --apply")
+    device_group.add_argument("--port", help="Serial port (default: value from user settings)")
+    device_group.add_argument("--baud", type=int, help="Baud rate (default: value from user settings)")
+    device_group.add_argument("--timeout", type=float, default=1.0, help="Serial read timeout in seconds (default: 1.0)")
+
+    file_group = settings_gui_parser.add_argument_group("User settings file (no device connection)")
+    file_group.add_argument(
+        "--set-units",
+        choices=["cm", "inch"],
+        metavar="cm|inch",
+        help="Set digitisation.units in user settings file",
+    )
+    file_group.add_argument(
+        "--set-metal-compensation",
+        choices=["on", "off"],
+        metavar="on|off",
+        help="Set digitisation.metal_compensation in user settings file",
+    )
+    file_group.add_argument(
+        "--set-factory-defaults",
+        choices=["on", "off"],
+        metavar="on|off",
+        help="Set digitisation.set_factory_software_defaults in user settings file",
+    )
+    settings_gui_parser.set_defaults(handler=_handle_settings)
 
     talk_parser = subparsers.add_parser(
         "talk",
@@ -91,16 +121,137 @@ def _handle_gui(args: argparse.Namespace) -> int:
     return launch_gui(settings_path=args.settings, serial_port=args.port, output_dir=args.output_dir, dev_mode=args.dev_mode, restore_last=args.restore_last)
 
 
-def _handle_read_settings(args: argparse.Namespace) -> int:
-    argv = [
-        "--port",
-        args.port,
-        "--baud",
-        str(args.baud),
-        "--timeout",
-        str(args.timeout),
-    ]
-    return read_settings.main(argv)
+def _handle_settings(args: argparse.Namespace) -> int:
+    has_set_flag = any([args.set_units, args.set_metal_compensation, args.set_factory_defaults])
+    selected_modes = sum(bool(flag) for flag in [args.dump, args.apply, has_set_flag])
+
+    if selected_modes > 1:
+        print("ERROR: --dump, --apply, and --set-* flags cannot be combined", file=sys.stderr)
+        return 1
+
+    if args.dump:
+        return _handle_settings_dump(args)
+    if args.apply:
+        return _handle_settings_apply(args)
+    if has_set_flag:
+        return _handle_settings_set(args)
+
+    from .gui import launch_settings
+
+    return launch_settings(settings_path=args.settings)
+
+
+def _handle_settings_dump(args: argparse.Namespace) -> int:
+    from . import read_settings
+    from .settings_loader import load_settings
+
+    merged = load_settings()
+    port = args.port or merged.get("serial_port", "COM1")
+    baud = args.baud or int(merged.get("serial_baud", 9600))
+
+    try:
+        ser = read_settings.open_port(port, baud, timeout=args.timeout)
+    except Exception as exc:
+        print(f"ERROR: Could not open port {port} @ {baud}: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        read_settings.ensure_ascii_and_quiet(ser)
+        data = {
+            "serial_port": port,
+            "serial_baud": baud,
+            "system": read_settings.query_system(ser),
+        }
+        active, l_raw = read_settings.query_active_stations(ser)
+        data["stations_active_raw"] = l_raw
+        data["stations_active"] = active
+
+        stations = {}
+        for idx in range(1, 5):
+            if active[idx - 1]:
+                try:
+                    stations[str(idx)] = read_settings.query_station(ser, idx)
+                except TimeoutError as exc:
+                    stations[str(idx)] = {"station": idx, "error": str(exc)}
+                except Exception as exc:
+                    stations[str(idx)] = {"station": idx, "error": repr(exc)}
+            else:
+                stations[str(idx)] = {"station": idx, "active": False}
+        data["stations"] = stations
+
+        text = json.dumps(data, indent=2)
+        if args.out is not None:
+            args.out.parent.mkdir(parents=True, exist_ok=True)
+            args.out.write_text(text, encoding="utf-8")
+        else:
+            print(text)
+        return 0
+    finally:
+        try:
+            ser.close()
+        except Exception:
+            pass
+
+
+def _handle_settings_apply(args: argparse.Namespace) -> int:
+    from . import read_settings
+    from .settings_loader import load_settings
+
+    if args.from_file is None:
+        print("ERROR: --apply requires --from FILE", file=sys.stderr)
+        return 1
+
+    merged = load_settings()
+    port = args.port or merged.get("serial_port", "COM1")
+    baud = args.baud or int(merged.get("serial_baud", 9600))
+
+    try:
+        ser = read_settings.open_port(port, baud, timeout=args.timeout)
+    except Exception as exc:
+        print(f"ERROR: Could not open port {port} @ {baud}: {exc}", file=sys.stderr)
+        return 2
+
+    try:
+        data = json.loads(args.from_file.read_text(encoding="utf-8"))
+        report = read_settings.apply_settings(ser, data)
+        print(json.dumps(report, indent=2))
+        return 0
+    finally:
+        try:
+            ser.close()
+        except Exception:
+            pass
+
+
+def _handle_settings_set(args: argparse.Namespace) -> int:
+    from .settings_loader import load_user_settings, user_settings_path
+
+    user = load_user_settings()
+    user.setdefault("digitisation", {})
+    changed = []
+
+    if args.set_units is not None:
+        user["digitisation"]["units"] = args.set_units
+        changed.append(f"digitisation.units = {args.set_units!r}")
+
+    if args.set_metal_compensation is not None:
+        value = args.set_metal_compensation == "on"
+        user["digitisation"]["metal_compensation"] = value
+        changed.append(f"digitisation.metal_compensation = {value}")
+
+    if args.set_factory_defaults is not None:
+        value = args.set_factory_defaults == "on"
+        user["digitisation"]["set_factory_software_defaults"] = value
+        changed.append(f"digitisation.set_factory_software_defaults = {value}")
+
+    path = user_settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(user, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    for line in changed:
+        print(f"Set: {line}")
+    print(f"Saved to: {path}")
+    return 0
 
 
 def _handle_talk(args: argparse.Namespace) -> int:
@@ -114,9 +265,20 @@ def _handle_stream(args: argparse.Namespace) -> int:
     settings = load_settings()
     dig_settings = settings.get("digitisation", {})
     port = args.port or settings.get("serial_port", "COM1")
+    baud_rate = settings.get("serial_baud", 9600)
     hemisphere = _parse_fastrak_hemisphere(dig_settings)
+    units = dig_settings.get("units", "cm")
+    metal_compensation = dig_settings.get("metal_compensation", True)
+    set_factory_defaults = dig_settings.get("set_factory_software_defaults", True)
 
-    connector = FastrakConnector(usb_port=port, hemisphere=hemisphere)
+    connector = FastrakConnector(
+        usb_port=port,
+        hemisphere=hemisphere,
+        baud_rate=baud_rate,
+        units=units,
+        metal_compensation=metal_compensation,
+        set_factory_defaults=set_factory_defaults,
+    )
     connector.debug_serial = True
     connector.serialobj.timeout = args.timeout
 
